@@ -121,6 +121,10 @@ import {
   serverLogger,
 } from "./utils/logger";
 import { runProcessWithCodeTimeout, shQuote } from "./utils/process-utils";
+import {
+  createInFlightRpcs,
+  startEventLoopStallMonitor,
+} from "./utils/event-loop-stall";
 import { rpcLogLevel } from "./utils/rpc-logging";
 import { createWorkspaceWorktree } from "./worktree/create";
 import { inspectWorkspacePath } from "./workspace/path";
@@ -193,6 +197,11 @@ const cpuProfile = config.profile
 const agentSeen = createAgentSeenStore();
 // Seen marks hold for one Herdr server process: its boot id, per connection.
 const herdrBoots = createHerdrBootCache();
+const inFlightRpcs = createInFlightRpcs();
+const stopStallMonitor = startEventLoopStallMonitor({
+  logger,
+  context: () => inFlightRpcs.snapshot(),
+});
 const webPush = createWebPushService({
   warn: (message) => logger.warn(message),
 });
@@ -1933,7 +1942,9 @@ function main() {
                 }
               }
             }
+            const settled = inFlightRpcs.begin(method);
             runInSshLane(lane, () => handleRpc(ws, text))
+              .finally(settled)
               .then(() => {
                 const outcome = takeRpcOutcome(ws, id);
                 logRpc(
@@ -2072,6 +2083,7 @@ function stopManagerOnce(): Promise<void> {
     await assistantServiceTask
       ?.then((assistant) => assistant.dispose())
       .catch(() => undefined);
+    stopStallMonitor();
     await Promise.all([connectionManager.stopAll(), cpuProfile?.stop()]);
   })();
   return managerStopTask;

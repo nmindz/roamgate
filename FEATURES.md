@@ -75,6 +75,8 @@ any order. Enter switches, opening another server's agent on its server;
 - On macOS, Option types characters (`@`, `[`, `~` on many layouts) by default.
   **Menu > Configuration > Behavior > Option key as Alt in terminals** makes it
   send Alt-modified keys instead, for shell and Herdr Alt bindings.
+- Kitty-protocol images in endpoint panes (for example a herdr-browser page
+  view) are drawn over the terminal and follow the pane as it updates.
 - Paste images or drop files onto a pane to upload them to that pane's host and
   insert their quoted paths (without pressing Enter). Dropping explorer rows
   inserts paths without uploading. Uploads expire after 24 hours by default.

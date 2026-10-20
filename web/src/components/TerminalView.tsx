@@ -132,6 +132,7 @@ import {
   terminalShortcutSequence,
 } from "../terminalKeys";
 import { TerminalHistorySelection } from "../terminalHistorySelection";
+import { TerminalGraphicsOverlay } from "../terminalGraphicsOverlay";
 import {
   TerminalTouchSelection,
   terminalSelectedText,
@@ -529,6 +530,7 @@ export function TerminalView({
   const endpointPresentationRef = useRef<TerminalEndpointPresentation | null>(
     null,
   );
+  const graphicsOverlayRef = useRef<TerminalGraphicsOverlay | null>(null);
   // Mirrors termRef as state so the attach effect re-runs when the xterm
   // instance is recreated: the init effect's cleanup resets the attach refs,
   // and without an instance change in the deps the attach effect would not
@@ -745,8 +747,10 @@ export function TerminalView({
     termRef.current?.refresh(0, termRef.current.rows - 1);
     setFileLinkMenu(null);
     setWorkspaceDirectory(null);
-    if (desiredTerminalRef.current !== (pane?.terminal_id ?? null))
+    if (desiredTerminalRef.current !== (pane?.terminal_id ?? null)) {
       endpointPresentationRef.current?.reset(true);
+      graphicsOverlayRef.current?.store.clear();
+    }
     touchSelectionRef.current?.reset();
     setComposerMode("composer");
     composerModeRef.current = "composer";
@@ -1425,6 +1429,8 @@ export function TerminalView({
     term.loadAddon(new UnicodeGraphemesAddon());
     term.loadAddon(fit);
     term.open(container);
+    const graphicsOverlay = new TerminalGraphicsOverlay(term);
+    graphicsOverlayRef.current = graphicsOverlay;
     const compositionRepair = installTerminalCompositionRepair(term);
     if (isApplePlatform()) {
       term.element?.classList.add("xterm-apple-row-spacing-fix");
@@ -1688,6 +1694,7 @@ export function TerminalView({
       invalidateLinks();
       linkReadyRef.current = false;
       setFileLinkMenu(null);
+      graphicsOverlay.store.clear();
       store.setTerminalEndpoint(connectionClient, closed.terminal_id, null);
       // Herdr closes the direct attach when another client takes the
       // terminal over (or its stream dies). Re-attach, but bound takeover
@@ -1719,6 +1726,19 @@ export function TerminalView({
       }
       setAttachRetry((value) => value + 1);
     });
+    const offGraphics = bridge.onTerminalGraphics((graphics) => {
+      if (
+        !terminalPushMatches(
+          terminalIdentity,
+          connectionClient,
+          desiredTerminalRef.current,
+          graphics,
+        )
+      ) {
+        return;
+      }
+      graphicsOverlay.store.apply(graphics);
+    });
     let disposedByConnectionLease = false;
     const unregisterConnectionDisposer = registerTerminalConnectionDisposer(
       terminalIdentity,
@@ -1727,6 +1747,7 @@ export function TerminalView({
         invalidateLinks();
         linkReadyRef.current = false;
         setFileLinkMenu(null);
+        graphicsOverlay.store.clear();
         const terminalId = attachedRef.current ?? desiredTerminalRef.current;
         if (sendRemoteDetach && terminalId && connectionClient.isCurrent()) {
           void connectionClient
@@ -3171,6 +3192,9 @@ export function TerminalView({
       endpointPresentationRef.current = null;
       offClipboard();
       offClosed();
+      offGraphics();
+      graphicsOverlay.dispose();
+      graphicsOverlayRef.current = null;
       unregisterConnectionDisposer();
       window.removeEventListener(LAYOUT_CHANGE_EVENT, applyDensity);
       ro.disconnect();
@@ -3293,9 +3317,11 @@ export function TerminalView({
       endpointPresentationRef.current?.reset(
         desiredTerminalRef.current !== paneTerminalId,
       );
+      graphicsOverlayRef.current?.store.clear();
     }
     if (terminalAttachEpochRef.current !== s.terminalAttachEpoch) {
       endpointPresentationRef.current?.reset();
+      graphicsOverlayRef.current?.store.clear();
       terminalAttachEpochRef.current = s.terminalAttachEpoch;
       attachedRef.current = null;
       attachingRef.current = null;

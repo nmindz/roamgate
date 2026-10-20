@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import * as net from "node:net";
 import { BinReader, BinWriter, encodeFrame } from "./bincode";
+import { ENDPOINT_CELL_PX, type GraphicsScene } from "./endpoint-graphics";
 import type { FrameData } from "./thin-client";
 import {
   SurfaceReader,
@@ -82,6 +83,7 @@ export interface EndpointSurface {
   frame: FrameData;
   surfaceRevision: number;
   panes: PaneSurfacePaneMeta[];
+  graphics: GraphicsScene;
 }
 
 /**
@@ -109,7 +111,9 @@ export type EndpointClientRole = "terminal" | "notifications";
  */
 export class EndpointClient extends EventEmitter {
   private sock: net.Socket | null = null;
-  private buf = Buffer.alloc(0);
+  // Chunks of a partially received frame; image frames span many reads.
+  private chunks: Buffer[] = [];
+  private chunkBytes = 0;
   private closed = false;
   private welcomed = false;
   private welcome: EndpointWelcome | null = null;
@@ -203,8 +207,11 @@ export class EndpointClient extends EventEmitter {
     const passive = this.role === "notifications";
     const hello = {
       generation: ENDPOINT_GENERATION,
-      cell_width_px: 0,
-      cell_height_px: 0,
+      // A known cell size enables Herdr's inline image scene; passive shells
+      // stay at zero so they never receive image bytes. direct_graphics and
+      // pixel_mouse stay off: together they select acknowledged temp files.
+      cell_width_px: passive ? 0 : ENDPOINT_CELL_PX.width,
+      cell_height_px: passive ? 0 : ENDPOINT_CELL_PX.height,
       surface_size: { cols, rows },
       pixel_mouse: false,
       direct_graphics: false,
@@ -239,8 +246,8 @@ export class EndpointClient extends EventEmitter {
     this.assertNegotiatedCodecs();
     const w = new BinWriter();
     w.variant(CM.ClientShellResize);
-    w.varint(0); // cell_width_px
-    w.varint(0); // cell_height_px
+    w.varint(ENDPOINT_CELL_PX.width);
+    w.varint(ENDPOINT_CELL_PX.height);
     w.varint(cols);
     w.varint(rows);
     w.bool(false); // pixel_mouse
@@ -334,21 +341,32 @@ export class EndpointClient extends EventEmitter {
   }
 
   private onData(chunk: Buffer) {
-    this.buf = Buffer.concat([this.buf, chunk]);
-    while (this.buf.length >= 4) {
-      const len = this.buf.readUInt32LE(0);
+    this.chunks.push(chunk);
+    this.chunkBytes += chunk.length;
+    while (this.chunkBytes >= 4) {
+      const head =
+        this.chunks[0]!.length >= 4
+          ? this.chunks[0]!
+          : Buffer.concat(this.chunks, this.chunkBytes);
+      const len = head.readUInt32LE(0);
       if (len > 32 * 1024 * 1024) {
         const error = new Error(`oversized frame: ${len}`);
-        this.buf = Buffer.alloc(0);
+        this.chunks = [];
+        this.chunkBytes = 0;
         this.rejectWelcome(error);
         this.close();
         this.emit("error", error);
         return;
       }
-      if (this.buf.length < 4 + len) return;
-      const payload = this.buf.subarray(4, 4 + len);
-      this.buf = this.buf.subarray(4 + len);
-      this.handlePayload(payload);
+      if (this.chunkBytes < 4 + len) return;
+      const all =
+        this.chunks.length === 1
+          ? this.chunks[0]!
+          : Buffer.concat(this.chunks, this.chunkBytes);
+      const rest = all.subarray(4 + len);
+      this.chunks = rest.length > 0 ? [rest] : [];
+      this.chunkBytes = rest.length;
+      this.handlePayload(all.subarray(4, 4 + len));
       if (this.closed) return;
     }
   }
