@@ -56,6 +56,14 @@
     "calt" 0;
 }
 
+.terminal-view .xterm .terminal-graphics-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
 .terminal-view .xterm.xterm-apple-row-spacing-fix .xterm-rows {
   /*
    * xterm's DOM renderer derives a fractional correction from integer

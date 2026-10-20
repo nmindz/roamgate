@@ -21,6 +21,8 @@ import { EndpointClient } from "./endpoint-client";
 import type { Popup, SurfaceBaseline } from "./endpoint-surface";
 import { frameToAnsi } from "./frame-to-ansi";
 import { isTerminalClipboardPayload } from "./terminal-clipboard";
+import { ENDPOINT_CELL_PX, type PaneGraphicsView } from "./endpoint-graphics";
+import { sendWouldBeHeld } from "./websocket-send";
 
 type TerminalSession = {
   terminalId: string | null;
@@ -36,6 +38,8 @@ type ViewerViewport = {
    * bridge-wide viewport counter; relay viewports use the relay revision.
    */
   revision: number;
+  /** Image ids written to this viewer for this attachment. */
+  graphics?: Set<string>;
 };
 
 type SharedTerminalSession = {
@@ -189,12 +193,16 @@ export function createTerminalBridge(args: {
     return isSupportedHerdrProtocol(protocol) && protocol >= 16;
   }
 
-  const terminalCoalesceKey = (terminalId: string) =>
-    `terminal:${JSON.stringify([
+  const coalesceKey = (kind: string, terminalId: string) =>
+    `${kind}:${JSON.stringify([
       args.connectionId ?? null,
       args.connectionGeneration ?? null,
       terminalId,
     ])}`;
+  const terminalCoalesceKey = (terminalId: string) =>
+    coalesceKey("terminal", terminalId);
+  const graphicsCoalesceKey = (terminalId: string) =>
+    coalesceKey("terminal-graphics", terminalId);
 
   const serialize = (message: Record<string, unknown>) =>
     args.connectionId
@@ -714,6 +722,7 @@ export function createTerminalBridge(args: {
         );
     for (const id of terminalIds) {
       args.dropCoalesced?.(ws, terminalCoalesceKey(id));
+      args.dropCoalesced?.(ws, graphicsCoalesceKey(id));
       attachmentTokens.get(ws)?.delete(id);
       if (clipboardTarget?.ws === ws && clipboardTarget.terminalId === id) {
         clipboardTarget = null;
@@ -780,8 +789,10 @@ export function createTerminalBridge(args: {
     const existing = sharedTerminals.get(terminalId);
     if (existing && !existing.thin.isClosed) return existing;
     if (existing) {
-      for (const viewer of existing.viewers)
+      for (const viewer of existing.viewers) {
         args.dropCoalesced?.(viewer, terminalCoalesceKey(terminalId));
+        args.dropCoalesced?.(viewer, graphicsCoalesceKey(terminalId));
+      }
       existing.thin.close();
       sharedTerminals.delete(terminalId);
     }
@@ -901,6 +912,37 @@ export function createTerminalBridge(args: {
         );
       }
     });
+    // Bytes count as delivered only once written: a held payload may be
+    // replaced by a newer one, which then still carries them.
+    thin.on("graphics", (view: PaneGraphicsView) => {
+      if (!isCurrent(creationRevision)) return;
+      const keep = new Set(view.keep);
+      for (const viewer of Array.from(shared.viewers)) {
+        const viewport = terminalViewers.get(viewer)?.get(terminalId);
+        if (!viewport) continue;
+        const delivered = (viewport.graphics ??= new Set());
+        for (const id of delivered) if (!keep.has(id)) delivered.delete(id);
+        const assets = view.assets.filter((asset) => !delivered.has(asset.id));
+        const written = !sendWouldBeHeld(viewer);
+        const sent = args.safeSend(
+          viewer,
+          serialize({
+            terminal_graphics: {
+              terminal_id: terminalId,
+              cell_width_px: ENDPOINT_CELL_PX.width,
+              cell_height_px: ENDPOINT_CELL_PX.height,
+              placements: view.placements,
+              assets,
+              keep: view.keep,
+            },
+          }),
+          "terminal-graphics",
+          graphicsCoalesceKey(terminalId),
+        );
+        if (sent && written)
+          for (const asset of assets) delivered.add(asset.id);
+      }
+    });
     // Bind to the receiving session, NOT the producing PTY: Herdr 0.9.0 sends
     // clipboard to its foreground shell without source attribution. The global
     // recent input owner must still match this session; never broadcast.
@@ -949,8 +991,10 @@ export function createTerminalBridge(args: {
       const viewers = Array.from(shared.viewers).filter(
         (viewer) => current === shared || !current?.viewers.has(viewer),
       );
-      for (const viewer of viewers)
+      for (const viewer of viewers) {
         args.dropCoalesced?.(viewer, terminalCoalesceKey(terminalId));
+        args.dropCoalesced?.(viewer, graphicsCoalesceKey(terminalId));
+      }
       if (current === shared) sharedTerminals.delete(terminalId);
       // Herdr closes a direct attach whose terminal another client takes
       // over, and the stream can also die with the server. Viewers only see
@@ -1203,6 +1247,7 @@ export function createTerminalBridge(args: {
         const sharedMode =
           existingShared && !existingShared.thin.isClosed ? "reused" : "new";
         const viewed = terminalViewers.get(ws) ?? new Map();
+        const rejoined = viewed.has(terminalId);
         const refreshReusedTerminal =
           sharedMode === "reused" &&
           !existingShared?.connecting &&
@@ -1269,6 +1314,13 @@ export function createTerminalBridge(args: {
                 size: `${cols}x${rows}`,
               },
             );
+          } else if (
+            rejoined &&
+            shared.thin instanceof EndpointTerminalSession
+          ) {
+            // Endpoint sessions drop unchanged surfaces; a same-size re-attach
+            // would otherwise wait for the pane's next content change.
+            shared.thin.repaint();
           }
           if (relaySize && relayRevision !== null) {
             await syncClipboardRelayAfterAttach(

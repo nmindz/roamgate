@@ -614,6 +614,202 @@ describe("bridge connection lifecycle", () => {
     expect(terminals).toEqual([]);
   });
 
+  describe("terminal_graphics pushes", () => {
+    const graphics = {
+      terminal_id: "term_1",
+      cell_width_px: 8,
+      cell_height_px: 16,
+      placements: [
+        {
+          asset: "a-1",
+          x: 0,
+          y: 2,
+          cols: 120,
+          rows: 40,
+          source_x: 0,
+          source_y: 0,
+          source_width: 0,
+          source_height: 0,
+          x_offset: 0,
+          y_offset: 0,
+          z: -1,
+        },
+      ],
+      assets: [{ id: "a-1", width: 4, height: 2, png: "AAAA" }],
+      keep: ["a-1"],
+    };
+
+    async function setup() {
+      class ManualWebSocket extends HangingWebSocket {
+        static instance: ManualWebSocket;
+
+        constructor() {
+          super();
+          ManualWebSocket.instance = this;
+          queueMicrotask(() => {
+            this.readyState = ManualWebSocket.OPEN;
+            this.onopen?.();
+          });
+        }
+      }
+      installBrowserGlobals(ManualWebSocket as unknown as typeof WebSocket);
+      const bridge = createTestBridge();
+      const received: unknown[] = [];
+      const unsubscribe = bridge.onTerminalGraphics((push) =>
+        received.push(push),
+      );
+      bridge.connect();
+      // Let the queued onopen microtask run.
+      await Promise.resolve();
+      return {
+        bridge,
+        received,
+        unsubscribe,
+        socket: () => ManualWebSocket.instance,
+        push: (value: unknown) =>
+          ManualWebSocket.instance.onmessage?.({
+            data: JSON.stringify(value),
+          } as MessageEvent),
+      };
+    }
+
+    test("dispatches a valid push to listeners until they unsubscribe", async () => {
+      const { received, unsubscribe, socket, push } = await setup();
+      sendHello(socket());
+      push({ connection_id: "legacy-default", terminal_graphics: graphics });
+      unsubscribe();
+      push({
+        connection_id: "legacy-default",
+        terminal_graphics: { ...graphics, placements: [] },
+      });
+
+      expect(received).toEqual([
+        { connection_id: "legacy-default", ...graphics },
+      ]);
+    });
+
+    test("binds pushes to the server runtime generation", async () => {
+      const { bridge, received, socket, push } = await setup();
+      socket().onmessage?.({
+        data: JSON.stringify({
+          hello: true,
+          bridge_protocol_version: 2,
+          default_connection_id: "alpha",
+          capabilities: { connection_runtime_generation: true },
+        }),
+      } as MessageEvent);
+      bridge.setConnectionRuntimeGenerations([{ id: "alpha", generation: 7 }]);
+      for (const generation of [undefined, 6, 7]) {
+        push({
+          connection_id: "alpha",
+          ...(generation === undefined
+            ? {}
+            : { connection_generation: generation }),
+          terminal_graphics: graphics,
+        });
+      }
+
+      expect(received).toEqual([
+        { connection_id: "alpha", connection_generation: 7, ...graphics },
+      ]);
+    });
+
+    const placement = graphics.placements[0];
+    const asset = graphics.assets[0];
+    const malformed: Array<[string, unknown]> = [
+      ["null payload", null],
+      ["array payload", []],
+      ["empty terminal id", { ...graphics, terminal_id: "" }],
+      ["missing terminal id", { ...graphics, terminal_id: undefined }],
+      ["zero cell width", { ...graphics, cell_width_px: 0 }],
+      ["fractional cell height", { ...graphics, cell_height_px: 1.5 }],
+      ["oversized cell width", { ...graphics, cell_width_px: 4097 }],
+      ["placements not an array", { ...graphics, placements: {} }],
+      [
+        "too many placements",
+        { ...graphics, placements: Array(4097).fill(placement) },
+      ],
+      ["assets not an array", { ...graphics, assets: "x" }],
+      ["too many keep entries", { ...graphics, keep: Array(4097).fill("a") }],
+      ["empty keep entry", { ...graphics, keep: [""] }],
+      ["non-string keep entry", { ...graphics, keep: [1] }],
+      ["overlong keep entry", { ...graphics, keep: ["k".repeat(129)] }],
+      ["null placement", { ...graphics, placements: [null] }],
+      [
+        "empty placement asset",
+        { ...graphics, placements: [{ ...placement, asset: "" }] },
+      ],
+      [
+        "overlong placement asset",
+        { ...graphics, placements: [{ ...placement, asset: "a".repeat(129) }] },
+      ],
+      [
+        "negative placement column",
+        { ...graphics, placements: [{ ...placement, x: -1 }] },
+      ],
+      [
+        "negative source crop",
+        { ...graphics, placements: [{ ...placement, source_y: -1 }] },
+      ],
+      [
+        "fractional placement size",
+        { ...graphics, placements: [{ ...placement, cols: 1.5 }] },
+      ],
+      [
+        "string placement row",
+        { ...graphics, placements: [{ ...placement, rows: "4" }] },
+      ],
+      [
+        "unsafe offset",
+        {
+          ...graphics,
+          placements: [{ ...placement, x_offset: Number.MAX_SAFE_INTEGER + 2 }],
+        },
+      ],
+      [
+        "non-integer z",
+        { ...graphics, placements: [{ ...placement, z: 0.5 }] },
+      ],
+      [
+        "missing z",
+        { ...graphics, placements: [{ ...placement, z: undefined }] },
+      ],
+      ["null asset", { ...graphics, assets: [null] }],
+      ["empty asset id", { ...graphics, assets: [{ ...asset, id: "" }] }],
+      ["zero asset width", { ...graphics, assets: [{ ...asset, width: 0 }] }],
+      [
+        "oversized asset height",
+        { ...graphics, assets: [{ ...asset, height: 65536 }] },
+      ],
+      ["non-string png", { ...graphics, assets: [{ ...asset, png: 7 }] }],
+    ];
+
+    test.each(malformed)("ignores a push with %s", async (_name, payload) => {
+      const { received, socket, push } = await setup();
+      sendHello(socket());
+      push({ connection_id: "legacy-default", terminal_graphics: payload });
+
+      expect(received).toEqual([]);
+    });
+
+    test("ignores pushes that share an envelope with another kind", async () => {
+      const { received, socket, push } = await setup();
+      sendHello(socket());
+      push({
+        connection_id: "legacy-default",
+        terminal_graphics: graphics,
+        terminal_closed: { terminal_id: "term_1" },
+      });
+      push({
+        connection_id: "legacy-default",
+        terminal_graphics: graphics,
+        popup: null,
+      });
+
+      expect(received).toEqual([]);
+    });
+  });
+
   test("keeps event and terminal listeners compatible with scoped pushes", async () => {
     class ManualWebSocket extends HangingWebSocket {
       static instance: ManualWebSocket;

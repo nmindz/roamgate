@@ -1,5 +1,14 @@
 import { BinReader } from "./bincode";
 import type { EndpointSurface, PaneSurfacePaneMeta } from "./endpoint-client";
+import {
+  type GraphicsKey,
+  type GraphicsScene,
+  type GraphicsTarget,
+  graphicsFormat,
+  graphicsKey,
+  hasGraphics,
+  readGraphicsScene,
+} from "./endpoint-graphics";
 import { readCellData, type CellData, type FrameData } from "./thin-client";
 
 export const SURFACE_DELTA_KIND = "endpoint.surface-delta.v1";
@@ -166,42 +175,7 @@ function readPopup(r: SurfaceReader, metadata: boolean): Popup | null {
   });
 }
 
-// The scene precedes delta rows on the wire even though Roamgate does not
-// render it. Consume every field, without retaining image payloads.
-function skipGraphicsKey(r: SurfaceReader) {
-  if (r.number(1) === 0) {
-    r.number(1); // Pane / Popup target
-    r.string();
-    r.number(0xffffffff); // image_id
-  } else {
-    r.string();
-    r.string();
-  }
-  r.number(0xffffffff);
-  r.number(0xffffffff);
-  r.number(2); // RGB / RGBA / PNG
-  r.varint(); // data_len
-  r.varint(); // opaque u64 fingerprint, never compared as a JS number
-}
-
-function skipGraphics(r: SurfaceReader, metadata: boolean): boolean {
-  const assets = r.count(metadata ? 4096 : MAX_FRAME);
-  for (let i = 0; i < assets; i++) {
-    skipGraphicsKey(r);
-    r.bytes();
-  }
-  const placements = r.count(metadata ? 65536 : MAX_FRAME);
-  for (let i = 0; i < placements; i++) {
-    skipGraphicsKey(r);
-    // logical id, x/y, cols/rows, source rect, offsets, zigzag z, scrollback
-    for (let j = 0; j < 13; j++) r.number(0xffffffff);
-  }
-  const retained = r.count(metadata ? 65536 : MAX_FRAME);
-  for (let i = 0; i < retained; i++) skipGraphicsKey(r);
-  return assets + placements + retained > 0;
-}
-
-function readSurface(r: SurfaceReader, metadata: boolean) {
+function readSurface(r: SurfaceReader, metadata: boolean): SurfaceBaseline {
   const bootId = r.string();
   const projectionRevision = r.number();
   const surfaceRevision = r.number();
@@ -217,17 +191,14 @@ function readSurface(r: SurfaceReader, metadata: boolean) {
     for (let j = 0; j < count; j++) r.bool();
   }
   const popup = readPopup(r, metadata);
-  const hasGraphics = skipGraphics(r, metadata);
   return {
-    surface: {
-      bootId,
-      projectionRevision,
-      surfaceRevision,
-      frame,
-      panes,
-      popup,
-    },
-    hasGraphics,
+    bootId,
+    projectionRevision,
+    surfaceRevision,
+    frame,
+    panes,
+    popup,
+    graphics: readGraphicsScene(r, metadata),
   };
 }
 
@@ -245,7 +216,7 @@ function validateLinks(frame: FrameData) {
 }
 
 export function readFullSurface(r: SurfaceReader): SurfaceBaseline {
-  const { surface } = readSurface(r, false);
+  const surface = readSurface(r, false);
   requireSurface(r.remaining === 0, "trailing full-frame bytes");
   validateLinks(surface.frame);
   if (surface.popup) validateLinks(surface.popup.frame);
@@ -318,7 +289,14 @@ export function readSurfacePatch(
   const frame = { ...current.frame, cells, cursor: readCursor(r) };
   requireSurface(r.remaining === 0, "trailing patch bytes");
   validateLinks(frame);
-  return { ...current, surfaceRevision, frame, panes };
+  // Patches cannot carry images; the previous scene stays, minus its bytes.
+  return {
+    ...current,
+    surfaceRevision,
+    frame,
+    panes,
+    graphics: { ...current.graphics, assets: [] },
+  };
 }
 
 export function readSurfaceDelta(
@@ -337,9 +315,9 @@ export function readSurfaceDelta(
   const r = new SurfaceReader(bytes);
   const baseProjection = r.number();
   const base = r.number();
-  const { surface, hasGraphics } = readSurface(r, true);
+  const surface = readSurface(r, true);
   requireSurface(
-    hasGraphics || data.length <= 2 * 1024 * 1024,
+    hasGraphics(surface.graphics) || data.length <= 2 * 1024 * 1024,
     "ordinary delta exceeds frame limit",
   );
   checkBase(current, surface.bootId, base, surface.surfaceRevision);
@@ -434,7 +412,12 @@ export function readSurfaceReuse(
     Buffer.byteLength(data) <= 2 * 1024 * 1024,
     "reuse exceeds frame limit",
   );
-  const reuse = object(JSON.parse(data));
+  // Fingerprints are u64; quote them before JSON numbers lose precision.
+  const reuse = object(
+    JSON.parse(
+      data.replace(/"data_fingerprint":\s*(\d+)/g, '"data_fingerprint":"$1"'),
+    ),
+  );
   const raw = object(reuse.surface);
   const bootId = string(raw.boot_id);
   const projectionRevision = uint(raw.projection_revision);
@@ -500,5 +483,69 @@ export function readSurfaceReuse(
     frame,
     panes,
     popup: null,
+    graphics: reuseGraphics(raw.graphics),
+  };
+}
+
+const REUSE_FORMATS = ["Rgb", "Rgba", "Png"];
+
+function reuseKey(value: unknown): GraphicsKey {
+  const k = object(value);
+  const source = object(k.source);
+  let target: GraphicsTarget;
+  let imageId: string;
+  if (Object.hasOwn(source, "Terminal")) {
+    const terminal = object(source.Terminal);
+    const owner = object(terminal.target);
+    target = Object.hasOwn(owner, "Pane")
+      ? { kind: "pane", paneId: string(object(owner.Pane).pane_id) }
+      : { kind: "popup", terminalId: string(object(owner.Popup).terminal_id) };
+    imageId = String(uint(terminal.image_id, 0xffffffff));
+  } else {
+    const layer = object(source.PaneLayer);
+    target = { kind: "layer", paneId: string(layer.pane_id) };
+    imageId = string(layer.layer_id);
+  }
+  const fingerprint = string(k.data_fingerprint);
+  requireSurface(/^\d+$/.test(fingerprint), "invalid graphics fingerprint");
+  return graphicsKey(
+    target,
+    imageId,
+    uint(k.image_width, 0xffffffff),
+    uint(k.image_height, 0xffffffff),
+    graphicsFormat(REUSE_FORMATS.indexOf(string(k.format))),
+    uint(k.data_len),
+    fingerprint,
+  );
+}
+
+// Herdr reuses a surface only when no image bytes are new.
+function reuseGraphics(value: unknown): GraphicsScene {
+  const g = object(value);
+  requireSurface(array(g.assets, 0).length === 0, "reuse carries image bytes");
+  return {
+    assets: [],
+    placements: array(g.placements, 65_536).map((item) => {
+      const p = object(item);
+      requireSurface(
+        typeof p.z === "number" && Number.isSafeInteger(p.z),
+        "invalid graphics z",
+      );
+      return {
+        key: reuseKey(p.asset),
+        x: uint(p.x, 65535),
+        y: uint(p.y, 65535),
+        cols: uint(p.cols, 0xffffffff),
+        rows: uint(p.rows, 0xffffffff),
+        sourceX: uint(p.source_x, 0xffffffff),
+        sourceY: uint(p.source_y, 0xffffffff),
+        sourceWidth: uint(p.source_width, 0xffffffff),
+        sourceHeight: uint(p.source_height, 0xffffffff),
+        xOffset: uint(p.x_offset, 0xffffffff),
+        yOffset: uint(p.y_offset, 0xffffffff),
+        z: p.z,
+      };
+    }),
+    retained: array(g.retained_assets, 65_536).map(reuseKey),
   };
 }

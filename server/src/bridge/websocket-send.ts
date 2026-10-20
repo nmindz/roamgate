@@ -107,6 +107,11 @@ function closeSlowWebSocket(
   return true;
 }
 
+/** True when a coalesced send would be held for the next drain, not written. */
+export function sendWouldBeHeld(ws: WebSocketSendTarget): boolean {
+  return ws.getBufferedAmount() > WS_COALESCE_LIMIT_BYTES;
+}
+
 export function sendWebSocketMessage(
   ws: WebSocketSendTarget,
   payload: string,
@@ -123,7 +128,7 @@ export function sendWebSocketMessage(
   const sendContext = { cleanup, context, warn };
   if (coalesceKey !== undefined) {
     const held = heldPayloads.get(ws);
-    if (ws.getBufferedAmount() > WS_COALESCE_LIMIT_BYTES) {
+    if (sendWouldBeHeld(ws)) {
       if (held) held.set(coalesceKey, payload);
       else heldPayloads.set(ws, new Map([[coalesceKey, payload]]));
       return true;

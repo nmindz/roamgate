@@ -1,8 +1,17 @@
 import { EventEmitter } from "node:events";
-import { EndpointClient, type EndpointSurface } from "./endpoint-client";
+import {
+  EndpointClient,
+  type EndpointSurface,
+  type PaneSurfacePaneMeta,
+} from "./endpoint-client";
+import {
+  type GraphicsScene,
+  PaneGraphics,
+  type PaneGraphicsView,
+} from "./endpoint-graphics";
 import { EndpointCreationDeadline } from "./endpoint-creation";
 import { frameToAnsi } from "./frame-to-ansi";
-import type { FrameData } from "./thin-client";
+import type { CellData, FrameData } from "./thin-client";
 import type { Logger } from "../utils/logger";
 import { silentLogger } from "../utils/logger";
 import { MOUSE_KIND, VtInputClassifier } from "./vt-input-classifier";
@@ -54,9 +63,23 @@ export class EndpointTerminalSession extends EventEmitter {
   private linkLookupEpoch = 0;
   private linkFrame: {
     token: string;
-    content: string;
+    pane: PaneSurfacePaneMeta;
     surface: EndpointSurface;
     frame: FrameData;
+  } | null = null;
+  // Idle panes still receive surfaces for unrelated session changes; only a
+  // resize, focus or repaint re-sends an unchanged frame.
+  private repaintPending = true;
+  private lastEmit: {
+    cursor: FrameData["cursor"];
+    mouseReporting: boolean;
+    emit: () => void;
+  } | null = null;
+  private graphics = new PaneGraphics(() => this.republishGraphics());
+  private graphicsRepaintPending = true;
+  private graphicsInput: {
+    scene: GraphicsScene;
+    pane: PaneSurfacePaneMeta | null;
   } | null = null;
   private deferredFrame: {
     timer: ReturnType<typeof setTimeout>;
@@ -189,6 +212,8 @@ export class EndpointTerminalSession extends EventEmitter {
       if (!this.paneId) throw new Error("Endpoint terminal is not ready");
       await this.client.callEndpoint("pane.focus", { pane_id: this.paneId });
       if (!isCurrent()) return;
+      this.repaintPending = true;
+      this.graphicsRepaintPending = true;
       // Reclaim the viewport only when this viewer focuses the tab again.
       // Passive surfaces from other viewers must not restart fitting.
       this.fitAttempts = SURFACE_FIT_MAX_ATTEMPTS;
@@ -281,6 +306,7 @@ export class EndpointTerminalSession extends EventEmitter {
       this.lastScroll = null;
       this.scrollTarget = null;
       this.scrollDispatched = null;
+      this.publishGraphics(surface.graphics, null);
       return;
     }
     this.fitSurface(surface, pane);
@@ -331,25 +357,28 @@ export class EndpointTerminalSession extends EventEmitter {
     const cropped = cropFrame(surface.frame, pane.innerRect);
     // Herdr emits full surfaces even for focus and read-only link RPCs. Surface
     // sequence/object identity is not link content identity; cursor is not content.
-    const content = JSON.stringify({
-      paneId: pane.paneId,
-      revision: pane.contentRevision,
-      rect: pane.innerRect,
-      scroll: pane.scroll,
-      width: cropped.width,
-      height: cropped.height,
-      cells: cropped.cells,
-      hyperlinks: cropped.hyperlinks,
-    });
-    if (this.linkFrame?.content !== content) this.linkFrame = null;
-    const bytes = Buffer.from(frameToAnsi(cropped), "utf8");
+    const sameContent =
+      this.linkFrame !== null && sameLinkContent(this.linkFrame, pane, cropped);
+    if (!sameContent) this.linkFrame = null;
     const mouseReporting = pane.mouseReporting;
+    const unchanged =
+      sameContent &&
+      !this.repaintPending &&
+      this.lastEmit !== null &&
+      this.lastEmit.mouseReporting === mouseReporting &&
+      sameCursor(this.lastEmit.cursor, cropped.cursor);
     const emitFrame = () => {
       if (this.closed) return;
+      this.repaintPending = false;
+      this.lastEmit = {
+        cursor: cropped.cursor,
+        mouseReporting,
+        emit: emitFrame,
+      };
       this.seq += 1;
       const token =
         this.linkFrame?.token ?? `${this.linkSessionId}:${this.seq}`;
-      this.linkFrame ??= { token, content, surface, frame: cropped };
+      this.linkFrame ??= { token, pane, surface, frame: cropped };
       this.emit("terminal", {
         linkFrame: token,
         seq: this.seq,
@@ -367,15 +396,19 @@ export class EndpointTerminalSession extends EventEmitter {
               rows: pane.innerRect.height,
             }
           : undefined,
-        bytes,
+        bytes: Buffer.from(frameToAnsi(cropped), "utf8"),
         frame: cropped,
       });
+    };
+    const present = () => {
+      emitFrame();
+      this.publishGraphics(surface.graphics, pane);
     };
     // Wait for the requested geometry regardless of split ratio. New
     // frames replace the pending payload, never extend its deadline.
     if (this.fitResizeInFlight) {
       if (this.deferredFrame) {
-        this.deferredFrame.emit = emitFrame;
+        this.deferredFrame.emit = present;
         this.deferredFrame.size = {
           cols: surface.frame.width,
           rows: surface.frame.height,
@@ -397,14 +430,37 @@ export class EndpointTerminalSession extends EventEmitter {
         }, FIT_DEFER_MS);
         this.deferredFrame = {
           timer,
-          emit: emitFrame,
+          emit: present,
           size: { cols: surface.frame.width, rows: surface.frame.height },
         };
       }
       return;
     }
     this.clearDeferredFrame();
-    emitFrame();
+    if (!unchanged) emitFrame();
+    this.publishGraphics(surface.graphics, pane);
+  }
+
+  private publishGraphics(
+    scene: GraphicsScene,
+    pane: PaneSurfacePaneMeta | null,
+  ) {
+    if (this.closed || !this.paneId) return;
+    this.graphicsInput = { scene, pane };
+    const view: PaneGraphicsView | null = this.graphics.update(
+      scene,
+      this.paneId,
+      pane?.innerRect ?? null,
+      this.graphicsRepaintPending,
+    );
+    this.graphicsRepaintPending = false;
+    if (view) this.emit("graphics", view);
+  }
+
+  // A finished PNG encode is displayable without waiting for a new surface.
+  private republishGraphics() {
+    if (this.fitResizeInFlight || !this.graphicsInput) return;
+    this.publishGraphics(this.graphicsInput.scene, this.graphicsInput.pane);
   }
 
   private clearDeferredFrame() {
@@ -415,6 +471,8 @@ export class EndpointTerminalSession extends EventEmitter {
 
   resize(cols: number, rows: number) {
     this.linkFrame = null;
+    this.repaintPending = true;
+    this.graphicsRepaintPending = true;
     this.clearDeferredFrame();
     this.paneSize = { cols, rows };
     this.fitAttempts = SURFACE_FIT_MAX_ATTEMPTS;
@@ -423,6 +481,19 @@ export class EndpointTerminalSession extends EventEmitter {
     this.fitResizeInFlight = true;
     this.lastRequest = next;
     this.client.resize(next.cols, next.rows);
+  }
+
+  /** Re-send the displayed frame to a viewer that joined without a resize. */
+  repaint() {
+    if (this.closed) return;
+    if (this.fitResizeInFlight || !this.lastEmit) {
+      this.repaintPending = true;
+      this.graphicsRepaintPending = true;
+      return;
+    }
+    this.lastEmit.emit();
+    this.graphicsRepaintPending = true;
+    this.republishGraphics();
   }
 
   // The wanted request for the latest observed geometry. The pane ratio
@@ -780,6 +851,8 @@ export class EndpointTerminalSession extends EventEmitter {
     this.linkFrame = null;
     if (this.closed) return;
     this.closed = true;
+    this.graphics.dispose();
+    this.graphicsInput = null;
     this.scrollTarget = null;
     this.scrollDispatched = null;
     this.pressedMouseButtons.clear();
@@ -851,6 +924,64 @@ export function cropFrame(
       x >= 0 && x < width && y >= 0 && y < height ? { ...cursor, x, y } : null;
   }
   return { cells, width, height, cursor, hyperlinks: frame.hyperlinks };
+}
+
+function sameCell(a: CellData | undefined, b: CellData | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.symbol === b.symbol &&
+    a.fg === b.fg &&
+    a.bg === b.bg &&
+    a.modifier === b.modifier &&
+    a.skip === b.skip &&
+    a.hyperlink === b.hyperlink
+  );
+}
+
+function sameRect(a: PaneSurfacePaneMeta["innerRect"], b: typeof a): boolean {
+  return (
+    a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+  );
+}
+
+/** Link identity: the cropped content a viewer could hit-test, not the cursor. */
+function sameLinkContent(
+  shown: { pane: PaneSurfacePaneMeta; frame: FrameData },
+  pane: PaneSurfacePaneMeta,
+  frame: FrameData,
+): boolean {
+  const a = shown.pane.scroll;
+  const b = pane.scroll;
+  if (
+    shown.pane.paneId !== pane.paneId ||
+    shown.pane.contentRevision !== pane.contentRevision ||
+    !sameRect(shown.pane.innerRect, pane.innerRect) ||
+    (a === null) !== (b === null) ||
+    (a !== null &&
+      b !== null &&
+      (a.offsetFromBottom !== b.offsetFromBottom ||
+        a.maxOffsetFromBottom !== b.maxOffsetFromBottom ||
+        a.viewportRows !== b.viewportRows)) ||
+    shown.frame.width !== frame.width ||
+    shown.frame.height !== frame.height ||
+    shown.frame.cells.length !== frame.cells.length ||
+    shown.frame.hyperlinks.length !== frame.hyperlinks.length
+  )
+    return false;
+  for (let i = 0; i < frame.hyperlinks.length; i++)
+    if (shown.frame.hyperlinks[i] !== frame.hyperlinks[i]) return false;
+  for (let i = 0; i < frame.cells.length; i++)
+    if (!sameCell(shown.frame.cells[i], frame.cells[i])) return false;
+  return true;
+}
+
+function sameCursor(a: FrameData["cursor"], b: FrameData["cursor"]): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.x === b.x && a.y === b.y && a.visible === b.visible && a.shape === b.shape
+  );
 }
 
 /** Undefined means no OSC8; null means an invalid ID and must suppress labels. */

@@ -70,8 +70,35 @@ Capabilities are negotiated per terminal socket and rechecked at dispatch:
 connection (`settings.terminal_transport`). Changing them makes viewers reattach
 with a fresh full frame. Invalid updates close the stream rather than show stale
 output. These codecs reduce Herdr-to-bridge traffic; terminal messages of 1 KiB
-or more are also WebSocket-compressed to the browser. Kitty graphics are not
-shown.
+or more are also WebSocket-compressed to the browser. A surface that leaves the
+viewer's cropped cells, cursor, and mouse mode unchanged sends no frame; attach,
+resize, and focus always repaint.
+
+### Kitty graphics
+
+Terminal viewers announce a nominal 8x16 px cell, which makes Herdr include the
+tab's image scene in every full surface and delta (assets as RGB/RGBA once per
+connection, plus complete placement and retained lists). `direct_graphics` and
+`pixel_mouse` stay off so Herdr never switches to acknowledged temp files.
+Passive notification shells announce no cell size and receive no images.
+
+The bridge keeps only the attached pane's images, encodes each new one to PNG
+off the event loop, and pushes `terminal_graphics` to viewers: pane-relative
+placements (cells, Herdr pixel offsets and source crop), PNGs the viewer has
+not yet received, and the ids to keep. Pushes coalesce under backpressure, and
+an asset counts as delivered only once written. A scene is published whole:
+while a new image encodes, the previous one stays shown, and an empty scene
+waits 500 ms because Kitty programs delete an image before placing its
+replacement. The browser decodes before swapping, draws placements in z order
+on a canvas above xterm (scaled to its own cell size), and clears on terminal
+change, detach, close, or connection change.
+
+### Event-loop stalls
+
+The bridge warns `event loop stalled` when a 250 ms timer fires a second or more
+late, with the stall length, RSS, and the browser RPCs in flight. Herdr drops
+control connections that stay silent for five seconds, so stalls surface as
+failed refreshes.
 
 ### Geometry, input, and selection
 

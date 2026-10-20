@@ -230,6 +230,7 @@ async function registerDomTests() {
       },
       onTerminalClipboard: () => noop,
       onTerminalClosed: () => noop,
+      onTerminalGraphics: () => noop,
     },
   }));
   mock.module("../layoutPreferences", () => ({
@@ -308,6 +309,7 @@ async function registerDomTests() {
     onRender = disposable;
     onSelectionChange = disposable;
     onResize = disposable;
+    onScroll = disposable;
     loadAddon = noop;
     refresh = noop;
     reset = noop;

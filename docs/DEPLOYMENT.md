@@ -32,6 +32,8 @@ Known limitations:
 - Creating tabs or workspaces needs a connected terminal (except the first
   workspace in an empty session) and keeps Herdr's `terminal.new_cwd` policy.
 - Pixel mouse reporting and enhanced Kitty keyboard modes are not supported.
+  Kitty images appear only in endpoint mode, always above text (negative
+  z-index is drawn on top), and popup images are not shown.
 - **OSC 52 clipboard writes** go only to the browser that typed into that
   session in the last 30 seconds. Herdr does not say which pane produced a
   write, so a late write can reach the wrong recent typist. Clipboard reads are

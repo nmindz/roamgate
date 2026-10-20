@@ -103,6 +103,10 @@ import {
   serverLogger,
 } from "./utils/logger";
 import { runProcessWithCodeTimeout, shQuote } from "./utils/process-utils";
+import {
+  createInFlightRpcs,
+  startEventLoopStallMonitor,
+} from "./utils/event-loop-stall";
 import { rpcLogLevel } from "./utils/rpc-logging";
 import { createWorkspaceWorktree } from "./worktree/create";
 import { inspectWorkspacePath } from "./workspace/path";
@@ -166,6 +170,11 @@ const cpuProfile = config.profile
       logger,
     )
   : undefined;
+const inFlightRpcs = createInFlightRpcs();
+const stopStallMonitor = startEventLoopStallMonitor({
+  logger,
+  context: () => inFlightRpcs.snapshot(),
+});
 const webPush = createWebPushService({
   warn: (message) => logger.warn(message),
 });
@@ -1733,7 +1742,9 @@ function main() {
                 }
               }
             }
+            const settled = inFlightRpcs.begin(method);
             handleRpc(ws, text)
+              .finally(settled)
               .then(() => {
                 const outcome = takeRpcOutcome(ws, id);
                 logRpc(
@@ -1869,6 +1880,7 @@ function stopManagerOnce(): Promise<void> {
     await assistantServiceTask
       ?.then((assistant) => assistant.dispose())
       .catch(() => undefined);
+    stopStallMonitor();
     await Promise.all([connectionManager.stopAll(), cpuProfile?.stop()]);
   })();
   return managerStopTask;

@@ -263,6 +263,126 @@ export interface TerminalClosedPush {
   reason?: string;
 }
 
+export interface TerminalGraphicsPlacement {
+  asset: string;
+  x: number;
+  y: number;
+  cols: number;
+  rows: number;
+  source_x: number;
+  source_y: number;
+  source_width: number;
+  source_height: number;
+  x_offset: number;
+  y_offset: number;
+  z: number;
+}
+
+export interface TerminalGraphicsAsset {
+  id: string;
+  width: number;
+  height: number;
+  /** base64-encoded PNG bytes */
+  png: string;
+}
+
+export interface TerminalGraphicsPayload {
+  terminal_id: string;
+  cell_width_px: number;
+  cell_height_px: number;
+  placements: TerminalGraphicsPlacement[];
+  assets: TerminalGraphicsAsset[];
+  keep: string[];
+}
+
+export interface TerminalGraphicsPush extends TerminalGraphicsPayload {
+  connection_id: string;
+  connection_generation?: number;
+}
+
+const MAX_GRAPHICS_ENTRIES = 4096;
+const MAX_GRAPHICS_ID_LENGTH = 128;
+
+function isIdString(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= MAX_GRAPHICS_ID_LENGTH
+  );
+}
+
+function isIntegerInRange(value: unknown, min: number, max: number): boolean {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= min &&
+    value <= max
+  );
+}
+
+function isBoundedArray(value: unknown): value is unknown[] {
+  return Array.isArray(value) && value.length <= MAX_GRAPHICS_ENTRIES;
+}
+
+const PLACEMENT_NON_NEGATIVE_FIELDS = [
+  "x",
+  "y",
+  "cols",
+  "rows",
+  "source_x",
+  "source_y",
+  "source_width",
+  "source_height",
+  "x_offset",
+  "y_offset",
+] as const;
+
+function isValidGraphicsPlacement(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const placement = value as Record<string, unknown>;
+  return (
+    isIdString(placement.asset) &&
+    PLACEMENT_NON_NEGATIVE_FIELDS.every((field) =>
+      isIntegerInRange(placement[field], 0, Number.MAX_SAFE_INTEGER),
+    ) &&
+    isIntegerInRange(
+      placement.z,
+      Number.MIN_SAFE_INTEGER,
+      Number.MAX_SAFE_INTEGER,
+    )
+  );
+}
+
+function isValidGraphicsAsset(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const asset = value as Record<string, unknown>;
+  return (
+    isIdString(asset.id) &&
+    isIntegerInRange(asset.width, 1, 65535) &&
+    isIntegerInRange(asset.height, 1, 65535) &&
+    typeof asset.png === "string"
+  );
+}
+
+function isValidTerminalGraphicsPayload(
+  value: unknown,
+): value is TerminalGraphicsPayload {
+  if (!value || typeof value !== "object") return false;
+  const graphics = value as Record<string, unknown>;
+  return (
+    typeof graphics.terminal_id === "string" &&
+    graphics.terminal_id.length > 0 &&
+    isIntegerInRange(graphics.cell_width_px, 1, 4096) &&
+    isIntegerInRange(graphics.cell_height_px, 1, 4096) &&
+    isBoundedArray(graphics.placements) &&
+    graphics.placements.every(isValidGraphicsPlacement) &&
+    isBoundedArray(graphics.assets) &&
+    graphics.assets.every(isValidGraphicsAsset) &&
+    isBoundedArray(graphics.keep) &&
+    graphics.keep.every(isIdString)
+  );
+}
+
 export interface BridgeControlMsg {
   type: "pause_connection";
   reason?: string;
@@ -403,6 +523,9 @@ export class Bridge {
   >();
   private terminalClosedHandlers = new Set<
     (closed: TerminalClosedPush) => void
+  >();
+  private terminalGraphicsHandlers = new Set<
+    (graphics: TerminalGraphicsPush) => void
   >();
   private popupHandlers = new Set<(popup: PopupStatePush) => void>();
   private statusHandlers = new Set<(s: ConnectionStatus) => void>();
@@ -751,6 +874,7 @@ export class Bridge {
     const hasTerminal = owns("terminal");
     const hasClipboard = owns("terminal_clipboard");
     const hasTerminalClosed = owns("terminal_closed");
+    const hasTerminalGraphics = owns("terminal_graphics");
     const hasPopup = owns("popup");
     const hasControl = owns("control");
     const hasAssistant = owns("assistant");
@@ -762,6 +886,7 @@ export class Bridge {
       hasTerminal,
       hasClipboard,
       hasTerminalClosed,
+      hasTerminalGraphics,
       hasPopup,
       hasControl,
       hasAssistant,
@@ -975,6 +1100,28 @@ export class Bridge {
       return;
     }
 
+    if (hasTerminalGraphics) {
+      if (
+        !isValidTerminalGraphicsPayload(msg.terminal_graphics) ||
+        !this.pushGenerationMatches(
+          msg.connection_id,
+          msg.connection_generation,
+        )
+      ) {
+        return;
+      }
+      const graphics = scopedPayload(
+        msg.connection_id,
+        msg.connection_generation,
+        msg.terminal_graphics,
+        this._hello?.capabilities?.connection_runtime_generation === true,
+      );
+      if (graphics) {
+        this.terminalGraphicsHandlers.forEach((handler) => handler(graphics));
+      }
+      return;
+    }
+
     if (hasPopup) {
       if (
         !isValidPopupPayload(msg.popup) ||
@@ -1175,6 +1322,11 @@ export class Bridge {
   onTerminalClosed(cb: (closed: TerminalClosedPush) => void): () => void {
     this.terminalClosedHandlers.add(cb);
     return () => this.terminalClosedHandlers.delete(cb);
+  }
+
+  onTerminalGraphics(cb: (graphics: TerminalGraphicsPush) => void): () => void {
+    this.terminalGraphicsHandlers.add(cb);
+    return () => this.terminalGraphicsHandlers.delete(cb);
   }
 
   onStatus(cb: (status: ConnectionStatus) => void): () => void {

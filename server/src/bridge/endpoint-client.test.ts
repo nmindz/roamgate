@@ -755,7 +755,11 @@ describe("EndpointClient (endpoint generation 1)", () => {
     client.ping();
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    expect(seen).toContainEqual({ variant: 12, fields: [0, 0, 80, 24, false] });
+    // A known cell size keeps Herdr's image scene enabled across resizes.
+    expect(seen).toContainEqual({
+      variant: 12,
+      fields: [8, 16, 80, 24, false],
+    });
     expect(seen).toContainEqual({
       variant: 20,
       fields: ["endpoint.health.ping.v1", "{}"],
@@ -1433,6 +1437,95 @@ test("popup patch/replace and graphics tails cannot desynchronize main delta row
   }
   expect(first.popup?.frame.cells.map((c) => c.symbol).join("")).toBe("ab");
   expect(first.frame.cells[0].symbol).toBe(" ");
+});
+
+test("graphics scenes keep u64 fingerprints and placement fields from both codecs", () => {
+  // Above 2^53 these collapse to one JS number; keys must stay distinct.
+  const shown = 2n ** 63n + 1n;
+  const retained = 2n ** 63n + 2n;
+  const key = (w: BinWriter, fingerprint: bigint, length = 8) => {
+    w.variant(0); // Terminal
+    w.variant(0); // Pane
+    w.string("w1:p2");
+    w.varint(7); // image_id
+    w.varint(2);
+    w.varint(1);
+    w.variant(1); // Rgba
+    w.varint(length);
+    w.varint(fingerprint);
+  };
+  const scene = new BinWriter();
+  scene.varint(2);
+  key(scene, shown);
+  scene.bytes(Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]));
+  key(scene, retained);
+  scene.bytes(Buffer.from([1, 2, 3, 4])); // shorter than declared: dropped
+  scene.varint(1);
+  key(scene, shown);
+  for (const n of [0, 1, 1, 2, 1, 0, 0, 2, 1, 3, 4]) scene.varint(n);
+  scene.varint(9); // zigzag -5
+  scene.varint(0); // scrollback offset
+  scene.varint(1);
+  key(scene, retained);
+  const full = Buffer.concat([
+    surfaceFrame({ surfaceRevision: 1, frame: CODEC_FRAME }).subarray(0, -3),
+    scene.toBuffer(),
+  ]);
+  const r = new SurfaceReader(full);
+  r.variant();
+  const surface = readFullSurface(r);
+  const { assets, placements, retained: kept } = surface.graphics;
+  expect(assets).toHaveLength(1);
+  expect([...assets[0]!.data]).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(placements[0]).toMatchObject({
+    x: 1,
+    y: 1,
+    cols: 2,
+    rows: 1,
+    sourceWidth: 2,
+    sourceHeight: 1,
+    xOffset: 3,
+    yOffset: 4,
+    z: -5,
+  });
+  expect(placements[0]!.key.id).toBe(assets[0]!.key.id);
+  expect(kept[0]!.id).not.toBe(placements[0]!.key.id);
+
+  const reuse = reuseData(1, 2);
+  const jsonKey = {
+    source: {
+      Terminal: { target: { Pane: { pane_id: "w1:p2" } }, image_id: 7 },
+    },
+    image_width: 2,
+    image_height: 1,
+    format: "Rgba",
+    data_len: 8,
+    data_fingerprint: "FINGERPRINT",
+  };
+  Object.assign(reuse.surface.graphics, {
+    placements: [
+      {
+        asset: jsonKey,
+        logical_placement_id: 0,
+        x: 1,
+        y: 1,
+        cols: 2,
+        rows: 1,
+        source_x: 0,
+        source_y: 0,
+        source_width: 2,
+        source_height: 1,
+        x_offset: 3,
+        y_offset: 4,
+        z: -5,
+        scrollback_offset: 0,
+      },
+    ],
+  });
+  const text = JSON.stringify(reuse).replace('"FINGERPRINT"', shown.toString());
+  const reused = readSurfaceReuse(text, codecBaseline());
+  expect(reused.graphics.placements[0]!.key.id).toBe(placements[0]!.key.id);
+  expect(reused.graphics.placements[0]!.z).toBe(-5);
 });
 
 test("reuse rejects invalid JSON metadata and revision mismatches atomically", () => {

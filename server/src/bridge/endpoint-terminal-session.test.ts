@@ -92,6 +92,19 @@ const DEFAULT_PANES: TestPane[] = [
   { paneId: "w1:p1", x: 0, mouseReporting: false },
 ];
 
+/** The fixture's default tab surface with a chosen cursor. */
+function defaultFrame(cursor: FrameData["cursor"]): FrameData {
+  return {
+    cells: Array.from({ length: 50 }, (_, i) =>
+      cell(String.fromCharCode(65 + (i % 26))),
+    ),
+    width: 10,
+    height: 5,
+    cursor,
+    hyperlinks: [],
+  };
+}
+
 function writePane(
   w: BinWriter,
   paneId: string,
@@ -3423,7 +3436,7 @@ describe("wheel bursts with delayed endpoint frames", () => {
   test("a stale repaint cannot rewind pending wheel movement", async () => {
     const first = deferred<void>();
     const requests: number[] = [];
-    let send!: (panes: TestPane[]) => void;
+    let send!: (panes: TestPane[], frame?: FrameData) => void;
     const socketPath = await startSessionServer({
       onConnection: (push) => {
         send = push;
@@ -3448,7 +3461,12 @@ describe("wheel bursts with delayed endpoint frames", () => {
       await settleUntil(() => requests.length === 1);
       session.scroll("up", 3);
       const before = frames;
-      send(DEFAULT_PANES); // old viewport arrives while the first request is pending
+      // Old viewport arrives while the first request is pending. A moved
+      // cursor makes it a visible repaint rather than a dropped duplicate.
+      send(
+        DEFAULT_PANES,
+        defaultFrame({ x: 3, y: 2, visible: true, shape: 1 }),
+      );
       await settleUntil(() => frames > before);
       session.scroll("up", 3);
       first.resolve();
@@ -3465,6 +3483,36 @@ describe("wheel bursts with delayed endpoint frames", () => {
   });
 });
 
+test("identical surfaces are not re-sent; repaint re-sends the shown frame", async () => {
+  let send!: (panes: TestPane[], frame?: FrameData) => void;
+  const socketPath = await startSessionServer({
+    onConnection: (push) => {
+      send = push;
+    },
+  });
+  const session = new EndpointTerminalSession(
+    socketPath,
+    "term1",
+    async () => "w1:p1",
+  );
+  const frames: Array<{ linkFrame: string; bytes: Buffer }> = [];
+  session.on("terminal", (frame) => frames.push(frame));
+  try {
+    await session.connect(8, 3, { cols: 10, rows: 5 });
+    const shown = frames.length;
+    send(DEFAULT_PANES);
+    const moved = once(session, "terminal");
+    send(DEFAULT_PANES, defaultFrame({ x: 3, y: 2, visible: true, shape: 1 }));
+    await moved;
+    expect(frames.length).toBe(shown + 1);
+    session.repaint();
+    expect(frames.length).toBe(shown + 2);
+    expect(frames.at(-1)!.linkFrame).toBe(frames.at(-2)!.linkFrame);
+    expect(frames.at(-1)!.bytes).toEqual(frames.at(-2)!.bytes);
+  } finally {
+    session.close();
+  }
+});
 test("wheel targets survive RPC replies before their surface acknowledgements", async () => {
   const requests: number[] = [];
   let send!: (panes: TestPane[]) => void;
@@ -4561,10 +4609,9 @@ describe("read-only terminal links", () => {
       onRequest: async (method) => {
         methods.push(method);
         // Real Herdr emits a new full surface as a side effect of each RPC.
+        // An identical one is dropped; the socket orders it before the reply.
         if (method === "pane.link.resolve") {
-          const shown = once(session, "terminal");
           send(panes, structuredClone(frame));
-          await shown;
           return resolvedRegions([{ row: 1, start_col: 1, end_col: 21 }]);
         }
         send(panes, {
@@ -4604,16 +4651,20 @@ describe("read-only terminal links", () => {
       expect(
         methods.filter((method) => method === "pane.link.resolve"),
       ).toHaveLength(3);
-      for (const change of [
+      for (const [index, change] of [
         "cells",
         "hyperlink",
         "scroll",
         "viewport",
         "revision",
         "input",
-      ]) {
+      ].entries()) {
+        // A distinct cursor makes every baseline an observable repaint.
         const restored = once(session, "terminal");
-        send(panes, frame);
+        send(panes, {
+          ...frame,
+          cursor: { x: index, y: 0, visible: true, shape: 1 },
+        });
         await restored;
         const before = token;
         const changed = structuredClone(frame);
