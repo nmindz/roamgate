@@ -2,6 +2,7 @@ import type { IDisposable, Terminal } from "@xterm/xterm";
 import {
   decodePngBase64,
   placementRects,
+  suppressedBox,
   TerminalGraphicsStore,
 } from "./terminalGraphics";
 
@@ -14,6 +15,7 @@ import {
 export class TerminalGraphicsOverlay {
   readonly store: TerminalGraphicsStore<ImageBitmap>;
   private readonly canvas = document.createElement("canvas");
+  private placeholder: HTMLElement | null = null;
   private readonly screen: Element | null;
   private readonly subscriptions: IDisposable[];
   private readonly resizeObserver: ResizeObserver | null;
@@ -42,6 +44,7 @@ export class TerminalGraphicsOverlay {
   dispose(): void {
     this.disposed = true;
     if (this.frame) cancelAnimationFrame(this.frame);
+    this.placeholder?.remove();
     this.frame = 0;
     for (const subscription of this.subscriptions) subscription.dispose();
     this.resizeObserver?.disconnect();
@@ -60,6 +63,7 @@ export class TerminalGraphicsOverlay {
   private draw(): void {
     const { term, canvas, screen, store } = this;
     if (this.disposed || !screen) return;
+    this.syncPlaceholder(screen);
     const bounds = screen.getBoundingClientRect();
     const ctx = store.placements.length > 0 ? canvas.getContext("2d") : null;
     if (!ctx || term.cols <= 0 || term.rows <= 0 || bounds.width <= 0) {
@@ -106,5 +110,49 @@ export class TerminalGraphicsOverlay {
       );
     }
     this.painted = true;
+  }
+
+  /** Shows, positions or removes the note for withheld Kitty graphics. */
+  private syncPlaceholder(screen: Element): void {
+    const { term, store } = this;
+    const bounds = screen.getBoundingClientRect();
+    const buffer = term.buffer.active;
+    const box =
+      store.suppressed && term.cols > 0 && term.rows > 0 && bounds.width > 0
+        ? suppressedBox(
+            store.suppressed,
+            term,
+            {
+              width: bounds.width / term.cols,
+              height: bounds.height / term.rows,
+            },
+            buffer.baseY - buffer.viewportY,
+          )
+        : null;
+    if (!box) {
+      this.placeholder?.remove();
+      this.placeholder = null;
+      return;
+    }
+    if (!this.placeholder) {
+      const note = document.createElement("div");
+      note.className = "terminal-graphics-placeholder";
+      note.setAttribute("role", "note");
+      const title = document.createElement("strong");
+      title.textContent = "Kitty graphics hidden";
+      const text = document.createElement("p");
+      text.textContent =
+        "This pane is showing Kitty graphics, but they are not streamed because " +
+        "Kitty graphics rendering is disabled for this connection " +
+        "(Menu \u203a Configuration \u203a Connection).";
+      note.append(title, text);
+      screen.appendChild(note);
+      this.placeholder = note;
+    }
+    const style = this.placeholder.style;
+    style.left = `${box.left}px`;
+    style.top = `${box.top}px`;
+    style.width = `${box.width}px`;
+    style.height = `${box.height}px`;
   }
 }
