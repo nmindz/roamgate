@@ -121,6 +121,7 @@ export class EndpointTerminalSession extends EventEmitter {
     private logger: Logger = silentLogger,
     private firstSurfaceWaitMs = FIRST_SURFACE_WAIT_MS,
     surfaceCodecsEnabled = true,
+    private graphicsEnabled = true,
   ) {
     super();
     this.client = new EndpointClient(socketPath, surfaceCodecsEnabled);
@@ -488,6 +489,7 @@ export class EndpointTerminalSession extends EventEmitter {
       this.paneId,
       pane?.innerRect ?? null,
       this.graphicsRepaintPending,
+      this.graphicsEnabled,
     );
     this.graphicsRepaintPending = false;
     if (view) this.emit("graphics", view);
@@ -497,6 +499,14 @@ export class EndpointTerminalSession extends EventEmitter {
   private republishGraphics() {
     if (this.fitResizeInFlight || !this.graphicsInput) return;
     this.publishGraphics(this.graphicsInput.scene, this.graphicsInput.pane);
+  }
+
+  /** Stream images, or send only their placeholder area; applies live. */
+  setGraphicsEnabled(enabled: boolean) {
+    if (this.graphicsEnabled === enabled) return;
+    this.graphicsEnabled = enabled;
+    this.graphicsRepaintPending = true;
+    this.republishGraphics();
   }
 
   private clearDeferredFrame() {

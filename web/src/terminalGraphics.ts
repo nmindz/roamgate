@@ -2,6 +2,7 @@ import type {
   TerminalGraphicsAsset,
   TerminalGraphicsPayload,
   TerminalGraphicsPlacement,
+  TerminalGraphicsSuppressedRect,
 } from "./api";
 
 export interface GraphicsSize {
@@ -57,6 +58,48 @@ export function placementRects(
   };
 }
 
+export interface PlaceholderBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+const PLACEHOLDER_MIN_COLS = 20;
+const PLACEHOLDER_MIN_ROWS = 3;
+
+/**
+ * CSS-px box for the "graphics hidden" placeholder: the suppressed cell rect
+ * clipped to the grid with the same cell math as images, or the whole screen
+ * when the rect is too small to read. Null when it is scrolled out of view.
+ */
+export function suppressedBox(
+  rect: TerminalGraphicsSuppressedRect,
+  grid: { cols: number; rows: number },
+  cell: GraphicsSize,
+  scrollRows = 0,
+): PlaceholderBox | null {
+  if (rect.cols < PLACEHOLDER_MIN_COLS || rect.rows < PLACEHOLDER_MIN_ROWS) {
+    return {
+      left: 0,
+      top: 0,
+      width: grid.cols * cell.width,
+      height: grid.rows * cell.height,
+    };
+  }
+  const x0 = Math.max(0, rect.x);
+  const x1 = Math.min(grid.cols, rect.x + rect.cols);
+  const y0 = Math.max(0, rect.y + scrollRows);
+  const y1 = Math.min(grid.rows, rect.y + scrollRows + rect.rows);
+  if (x1 <= x0 || y1 <= y0) return null;
+  return {
+    left: x0 * cell.width,
+    top: y0 * cell.height,
+    width: (x1 - x0) * cell.width,
+    height: (y1 - y0) * cell.height,
+  };
+}
+
 /** Cached ids absent from `keep`. */
 export function idsToEvict(
   cachedIds: Iterable<string>,
@@ -78,6 +121,8 @@ interface Closable {
  */
 export class TerminalGraphicsStore<Image extends Closable> {
   placements: readonly TerminalGraphicsPlacement[] = [];
+  /** Cell rect of images withheld because Kitty graphics are disabled. */
+  suppressed: TerminalGraphicsSuppressedRect | null = null;
   graphicsCell: GraphicsSize = { width: 1, height: 1 };
   private readonly images = new Map<string, Image>();
   private readonly pending = new Set<string>();
@@ -111,6 +156,7 @@ export class TerminalGraphicsStore<Image extends Closable> {
     if (!push || push.placements.some((p) => this.pending.has(p.asset))) return;
     this.staged = null;
     this.placements = push.placements;
+    this.suppressed = push.suppressed ?? null;
     this.graphicsCell = {
       width: push.cell_width_px,
       height: push.cell_height_px,
@@ -130,6 +176,7 @@ export class TerminalGraphicsStore<Image extends Closable> {
     this.staged = null;
     this.keep = new Set();
     this.placements = [];
+    this.suppressed = null;
     this.changed();
   }
 
