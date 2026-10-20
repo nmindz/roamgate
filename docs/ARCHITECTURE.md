@@ -93,6 +93,14 @@ replacement. The browser decodes before swapping, draws placements in z order
 on a canvas above xterm (scaled to its own cell size), and clears on terminal
 change, detach, close, or connection change.
 
+Streaming is a per-connection setting (`settings.terminal_transport`
+`kitty_graphics`, default on) that applies live without reconnecting. When off,
+the bridge still receives Herdr's scene and keeps image bytes (Herdr never
+resends a delivered image, so re-enabling needs them), but encodes and sends
+none. Its push carries only `suppressed`, the cell bounding box of the pane's
+images, and the browser shows a placeholder there. SSH profiles still carry the
+bytes from Herdr to the bridge; only the browser link is spared.
+
 ### Event-loop stalls
 
 The bridge warns `event loop stalled` when a 250 ms timer fires a second or more

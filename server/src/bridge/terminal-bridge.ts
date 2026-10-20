@@ -86,6 +86,7 @@ export function createTerminalBridge(args: {
   /** Popup surfaces follow this connection's focused Space, not the shell default. */
   focusedWorkspaceId?: () => Promise<string | null>;
   surfaceCodecsEnabled?: () => Promise<boolean>;
+  kittyGraphicsEnabled?: () => Promise<boolean>;
   validateCreationSource?: (source: EndpointCreationSource) => Promise<void>;
   createEmptyWorkspace?: (
     params: Record<string, unknown>,
@@ -167,6 +168,8 @@ export function createTerminalBridge(args: {
   let clipboardRelaySkipped = false;
   let lifecycleRevision = 0;
   let surfaceSettingsRevision = 0;
+  // Latest live toggle; null until one arrives, then it beats stored settings.
+  let kittyGraphics: boolean | null = null;
   let disposed = false;
   // Resolved once per bridge: the protocol is fixed for the server process,
   // and a restart recreates this bridge.
@@ -775,6 +778,7 @@ export function createTerminalBridge(args: {
       mode === "browser-local"
         ? await (args.surfaceCodecsEnabled?.() ?? true)
         : false;
+    const storedGraphics = await (args.kittyGraphicsEnabled?.() ?? true);
     if (!isCurrent(creationRevision))
       throw new Error("terminal bridge disposed");
     if (!isAttachCurrent()) throw new Error("terminal attachment changed");
@@ -812,6 +816,8 @@ export function createTerminalBridge(args: {
             logger,
             undefined,
             surfaceCodecsEnabled,
+            // A toggle that landed during the read above wins.
+            kittyGraphics ?? storedGraphics,
           )
         : new ThinClient(args.clientSocketPath, args.herdrProtocol);
     let resolveFirstFrame!: (seen: boolean) => void;
@@ -934,6 +940,7 @@ export function createTerminalBridge(args: {
               placements: view.placements,
               assets,
               keep: view.keep,
+              suppressed: view.suppressed,
             },
           }),
           "terminal-graphics",
@@ -1615,6 +1622,14 @@ export function createTerminalBridge(args: {
     }));
   }
 
+  function setKittyGraphics(enabled: boolean) {
+    if (disposed) return;
+    kittyGraphics = enabled;
+    for (const shared of sharedTerminals.values())
+      if (shared.thin instanceof EndpointTerminalSession)
+        shared.thin.setGraphicsEnabled(enabled);
+  }
+
   function refreshSurfaceCodecs() {
     if (disposed) return;
     surfaceSettingsRevision += 1;
@@ -1657,6 +1672,7 @@ export function createTerminalBridge(args: {
     browserClientCountChanged,
     refreshPopupObserverFocus,
     refreshSurfaceCodecs,
+    setKittyGraphics,
     dispose,
   };
 }

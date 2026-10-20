@@ -191,10 +191,19 @@ export interface EncodedAsset {
   png: string;
 }
 
+/** Cell bounding box of a pane's images, sent instead of them when disabled. */
+export interface SuppressedArea {
+  x: number;
+  y: number;
+  cols: number;
+  rows: number;
+}
+
 export interface PaneGraphicsView {
   placements: ViewPlacement[];
   assets: EncodedAsset[];
   keep: string[];
+  suppressed: SuppressedArea | null;
 }
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -248,7 +257,7 @@ export async function encodePng(
 const ASSET_ID_PREFIX = crypto.randomUUID().slice(0, 8);
 let assetSequence = 0;
 
-const EMPTY_SIGNATURE = "[[],[]]";
+const EMPTY_SIGNATURE = "[[],[],null]";
 // Kitty programs delete an image before placing its replacement, and Herdr
 // publishes that instant (~100 ms for herdr-browser). Viewers keep the old
 // image unless the scene stays empty this long.
@@ -281,6 +290,7 @@ export class PaneGraphics {
     paneId: string,
     rect: { x: number; y: number } | null,
     force: boolean,
+    enabled = true,
   ): PaneGraphicsView | null {
     this.forcePending ||= force;
     const owns = (key: GraphicsKey) =>
@@ -298,14 +308,15 @@ export class PaneGraphics {
     for (const id of this.raw.keys()) if (!live.has(id)) this.raw.delete(id);
     for (const id of this.encoded.keys())
       if (!live.has(id)) this.encoded.delete(id);
-    this.wanted = placed.map((p) => p.key.id);
+    // Disabled panes keep raw bytes: Herdr never resends a delivered image.
+    this.wanted = enabled ? placed.map((p) => p.key.id) : [];
     this.pump();
     // Swap scenes whole: never drop to fewer images while one still encodes.
-    if (placed.some((p) => this.raw.has(p.key.id))) return null;
+    if (enabled && placed.some((p) => this.raw.has(p.key.id))) return null;
 
     const placements: ViewPlacement[] = [];
     const assets = new Map<string, EncodedAsset>();
-    for (const p of placed.toSorted((a, b) => a.z - b.z)) {
+    for (const p of enabled ? placed.toSorted((a, b) => a.z - b.z) : []) {
       const asset = this.encoded.get(p.key.id);
       if (!asset) continue;
       assets.set(asset.id, asset);
@@ -324,9 +335,17 @@ export class PaneGraphics {
         z: p.z,
       });
     }
-    const keep = [...this.encoded.values()].map((asset) => asset.id);
-    const signature = JSON.stringify([placements, keep]);
-    if (placements.length > 0 || this.signature === EMPTY_SIGNATURE) {
+    const keep = enabled
+      ? [...this.encoded.values()].map((asset) => asset.id)
+      : [];
+    const suppressed =
+      !enabled && placed.length > 0 ? boundingBox(placed, rect!) : null;
+    const signature = JSON.stringify([placements, keep, suppressed]);
+    if (
+      placements.length > 0 ||
+      suppressed ||
+      this.signature === EMPTY_SIGNATURE
+    ) {
       this.emptySince = null;
       clearTimeout(this.emptyTimer);
       this.emptyTimer = undefined;
@@ -348,7 +367,7 @@ export class PaneGraphics {
       return null;
     this.signature = signature;
     this.forcePending = false;
-    return { placements, assets: [...assets.values()], keep };
+    return { placements, assets: [...assets.values()], keep, suppressed };
   }
 
   dispose() {
@@ -389,4 +408,20 @@ export class PaneGraphics {
         this.pump();
       });
   }
+}
+
+function boundingBox(
+  placed: GraphicsPlacement[],
+  rect: { x: number; y: number },
+): SuppressedArea {
+  const left = Math.min(...placed.map((p) => p.x));
+  const top = Math.min(...placed.map((p) => p.y));
+  const right = Math.max(...placed.map((p) => p.x + Math.max(1, p.cols)));
+  const bottom = Math.max(...placed.map((p) => p.y + Math.max(1, p.rows)));
+  return {
+    x: left - rect.x,
+    y: top - rect.y,
+    cols: right - left,
+    rows: bottom - top,
+  };
 }

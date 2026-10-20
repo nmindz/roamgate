@@ -13,7 +13,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-test("terminal transport settings validate input, persist by connection, and reconnect only on change", async () => {
+test("terminal transport settings validate input, persist by connection, and reconnect only on codec change", async () => {
   let settings: GuiSettings = {
     version: 1,
     repositories: {},
@@ -21,7 +21,7 @@ test("terminal transport settings validate input, persist by connection, and rec
     custom: { keep: true },
     terminal_transport: { beta: { surface_codecs: false } },
   };
-  const changed: boolean[] = [];
+  const changed: Array<[boolean, boolean, boolean | undefined]> = [];
   const messages: any[] = [];
   let writes = 0;
   let failWrite = false;
@@ -40,8 +40,14 @@ test("terminal transport settings validate input, persist by connection, and rec
       return settings;
     },
     onTerminalTransportSettingsChanged: (value) => {
-      expect(settings.terminal_transport?.alpha.surface_codecs).toBe(value);
-      changed.push(value);
+      expect(settings.terminal_transport?.alpha).toMatchObject({
+        surface_codecs: value.surface_codecs,
+      });
+      changed.push([
+        value.surface_codecs,
+        value.kitty_graphics,
+        value.codecs_changed,
+      ]);
     },
     herdr: {} as HerdrClient,
     sshHost: () => undefined,
@@ -71,11 +77,12 @@ test("terminal transport settings validate input, persist by connection, and rec
   expect(messages.at(-1)).toMatchObject({
     connection_id: "alpha",
     connection_generation: 3,
-    result: { surface_codecs: true },
+    result: { surface_codecs: true, kitty_graphics: true },
   });
   for (const params of [
     {},
     { surface_codecs: "false" },
+    { kitty_graphics: 0 },
     { surface_codecs: false, connection_id: "beta" },
   ]) {
     await call("update", params);
@@ -84,25 +91,36 @@ test("terminal transport settings validate input, persist by connection, and rec
   expect(writes).toBe(0);
   await call("update", { surface_codecs: false });
   await call("get");
-  expect(messages.at(-1).result).toEqual({ surface_codecs: false });
+  expect(messages.at(-1).result).toEqual({
+    surface_codecs: false,
+    kitty_graphics: true,
+  });
   await call("update", { surface_codecs: false });
-  expect(changed).toEqual([false]);
-  await call("update", { surface_codecs: true });
-  expect(changed).toEqual([false, true]);
+  expect(changed).toEqual([[false, true, true]]);
+  // Graphics toggle keeps the codec choice and does not reconnect terminals.
+  await call("update", { kitty_graphics: false });
+  expect(messages.at(-1).result).toEqual({
+    surface_codecs: false,
+    kitty_graphics: false,
+  });
+  expect(changed.at(-1)).toEqual([false, false, false]);
+  await call("update", { surface_codecs: true, kitty_graphics: true });
+  expect(changed.at(-1)).toEqual([true, true, true]);
+  changed.length = 0;
   expect(settings.terminal_transport?.beta.surface_codecs).toBe(false);
   expect(settings.custom).toEqual({ keep: true });
   failWrite = true;
   await call("update", { surface_codecs: false });
   expect(messages.at(-1).error.message).toBe("write failed");
-  expect(changed).toEqual([false, true]);
+  expect(changed).toEqual([]);
   const before = writes;
   await call("update", { surface_codecs: false }, false);
   expect(writes).toBe(before);
-  expect(changed).toEqual([false, true]);
+  expect(changed).toEqual([]);
   failWrite = false;
   cancelAfterWrite = true;
   await call("update", { surface_codecs: false });
-  expect(changed).toEqual([false, true, false]);
+  expect(changed).toEqual([[false, true, true]]);
   expect(messages.at(-1).error).toBeDefined();
 });
 

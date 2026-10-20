@@ -16,6 +16,8 @@ import {
   guiSettingsPath,
   readGuiSettings,
   repoWorktreeHooksEnabled,
+  type GuiSettings,
+  terminalKittyGraphicsEnabled,
   terminalSurfaceCodecsEnabled,
   updateGuiSettings,
   workspaceAutoSyncSettingsKey,
@@ -29,6 +31,25 @@ import {
 type ReadWorktreeHooks = ReturnType<
   typeof createWorktreeHookRunner
 >["readWorktreeHooks"];
+
+const TRANSPORT_SETTING_KEYS = ["surface_codecs", "kitty_graphics"];
+
+export type TerminalTransportSettingsChange = {
+  surface_codecs: boolean;
+  kitty_graphics: boolean;
+  /** Codec changes reconnect terminal displays; graphics changes do not. */
+  codecs_changed?: boolean;
+};
+
+function terminalTransportSettings(
+  settings: GuiSettings,
+  connectionId: string,
+): TerminalTransportSettingsChange {
+  return {
+    surface_codecs: terminalSurfaceCodecsEnabled(settings, connectionId),
+    kitty_graphics: terminalKittyGraphicsEnabled(settings, connectionId),
+  };
+}
 
 export function createSettingsRpcHandler(args: {
   connectionId?: string;
@@ -44,7 +65,9 @@ export function createSettingsRpcHandler(args: {
   }>;
   workspaceAutoSyncIsRunning: (key: string) => boolean;
   onWorkspaceAutoSyncSettingsChanged: (key: string, enabled: boolean) => void;
-  onTerminalTransportSettingsChanged?: (enabled: boolean) => void;
+  onTerminalTransportSettingsChanged?: (
+    change: TerminalTransportSettingsChange,
+  ) => void;
   safeSend: (
     ws: ServerWebSocket<unknown>,
     payload: string,
@@ -106,40 +129,51 @@ export function createSettingsRpcHandler(args: {
     try {
       if (!requestIsCurrent()) return fail(CONNECTION_CHANGED_DURING_REQUEST);
       if (method === "settings.terminal_transport.get") {
-        const settings = await readSettings();
-        return reply({
-          surface_codecs: terminalSurfaceCodecsEnabled(
-            settings,
-            args.connectionId,
+        return reply(
+          terminalTransportSettings(
+            await readSettings(),
+            args.connectionId ?? LEGACY_DEFAULT_CONNECTION_ID,
           ),
-        });
+        );
       }
       if (method === "settings.terminal_transport.update") {
+        const keys = Object.keys(params);
         if (
-          typeof params.surface_codecs !== "boolean" ||
-          Object.keys(params).some((key) => key !== "surface_codecs")
+          keys.length === 0 ||
+          keys.some(
+            (key) =>
+              !TRANSPORT_SETTING_KEYS.includes(key) ||
+              typeof params[key] !== "boolean",
+          )
         )
           return fail(
-            "settings.terminal_transport.update requires only a boolean surface_codecs",
+            "settings.terminal_transport.update requires boolean surface_codecs and/or kitty_graphics",
           );
-        const enabled = params.surface_codecs;
         const connectionId = args.connectionId ?? LEGACY_DEFAULT_CONNECTION_ID;
-        let changed = false;
+        let before!: TerminalTransportSettingsChange;
         const settings = await updateSettings((current) => {
-          changed =
-            terminalSurfaceCodecsEnabled(current, connectionId) !== enabled;
+          before = terminalTransportSettings(current, connectionId);
           return {
             ...current,
             terminal_transport: {
               ...current.terminal_transport,
-              [connectionId]: { surface_codecs: enabled },
+              [connectionId]: {
+                ...current.terminal_transport?.[connectionId],
+                ...(params as Partial<TerminalTransportSettingsChange>),
+              },
             },
           };
         }, requestIsCurrent);
-        if (changed) args.onTerminalTransportSettingsChanged?.(enabled);
-        return reply({
-          surface_codecs: terminalSurfaceCodecsEnabled(settings, connectionId),
-        });
+        const after = terminalTransportSettings(settings, connectionId);
+        if (
+          after.surface_codecs !== before.surface_codecs ||
+          after.kitty_graphics !== before.kitty_graphics
+        )
+          args.onTerminalTransportSettingsChanged?.({
+            ...after,
+            codecs_changed: after.surface_codecs !== before.surface_codecs,
+          });
+        return reply(after);
       }
       if (method === "settings.get") {
         const settings = await readSettings();

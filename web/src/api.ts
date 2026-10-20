@@ -286,6 +286,14 @@ export interface TerminalGraphicsAsset {
   png: string;
 }
 
+/** Cell rect (relative to the displayed frame) of images that are not streamed. */
+export interface TerminalGraphicsSuppressedRect {
+  x: number;
+  y: number;
+  cols: number;
+  rows: number;
+}
+
 export interface TerminalGraphicsPayload {
   terminal_id: string;
   cell_width_px: number;
@@ -293,6 +301,8 @@ export interface TerminalGraphicsPayload {
   placements: TerminalGraphicsPlacement[];
   assets: TerminalGraphicsAsset[];
   keep: string[];
+  /** Set when Kitty graphics are disabled for the connection and the pane shows images. */
+  suppressed?: TerminalGraphicsSuppressedRect | null;
 }
 
 export interface TerminalGraphicsPush extends TerminalGraphicsPayload {
@@ -364,6 +374,28 @@ function isValidGraphicsAsset(value: unknown): boolean {
   );
 }
 
+function isValidSuppressedRect(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const rect = value as Record<string, unknown>;
+  return (
+    isIntegerInRange(rect.x, 0, 65535) &&
+    isIntegerInRange(rect.y, 0, 65535) &&
+    isIntegerInRange(rect.cols, 1, 65535) &&
+    isIntegerInRange(rect.rows, 1, 65535)
+  );
+}
+
+function isValidSuppressed(graphics: Record<string, unknown>): boolean {
+  const { suppressed } = graphics;
+  if (suppressed === undefined || suppressed === null) return true;
+  return (
+    isValidSuppressedRect(suppressed) &&
+    (graphics.placements as unknown[]).length === 0 &&
+    (graphics.assets as unknown[]).length === 0 &&
+    (graphics.keep as unknown[]).length === 0
+  );
+}
+
 function isValidTerminalGraphicsPayload(
   value: unknown,
 ): value is TerminalGraphicsPayload {
@@ -379,7 +411,8 @@ function isValidTerminalGraphicsPayload(
     isBoundedArray(graphics.assets) &&
     graphics.assets.every(isValidGraphicsAsset) &&
     isBoundedArray(graphics.keep) &&
-    graphics.keep.every(isIdString)
+    graphics.keep.every(isIdString) &&
+    isValidSuppressed(graphics)
   );
 }
 

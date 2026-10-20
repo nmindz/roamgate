@@ -27,6 +27,7 @@ import { roamgateEnv } from "../config/environment";
 import { createSettingsRpcHandler } from "../bridge/settings-rpc";
 import {
   readGuiSettings,
+  terminalKittyGraphicsEnabled,
   terminalSurfaceCodecsEnabled,
 } from "../config/gui-settings";
 import {
@@ -239,13 +240,18 @@ export function createLegacyConnectionRuntime(args: {
       files.resolveWorkspaceGitRoot({ workspace_id: workspaceId }),
     workspaceAutoSyncIsRunning: workspaceAutoSync.isRunning,
     onWorkspaceAutoSyncSettingsChanged: workspaceAutoSync.settingsChanged,
-    onTerminalTransportSettingsChanged: (enabled) => {
+    onTerminalTransportSettingsChanged: ({
+      surface_codecs,
+      kitty_graphics,
+      codecs_changed,
+    }) => {
       if (disposed) return;
-      terminalBridge.refreshSurfaceCodecs();
+      if (codecs_changed) terminalBridge.refreshSurfaceCodecs();
+      terminalBridge.setKittyGraphics(kitty_graphics);
       args.onEvent(
         {
           event: "settings.terminal_transport.updated",
-          data: { surface_codecs: enabled },
+          data: { surface_codecs, kitty_graphics },
         },
         identity,
       );
@@ -262,6 +268,8 @@ export function createLegacyConnectionRuntime(args: {
     clientSocketPath,
     surfaceCodecsEnabled: async () =>
       terminalSurfaceCodecsEnabled(await readGuiSettings(), identity.id),
+    kittyGraphicsEnabled: async () =>
+      terminalKittyGraphicsEnabled(await readGuiSettings(), identity.id),
     herdrProtocol: async () => {
       const protocol: unknown = (await herdr.ping()).protocol;
       assertSupportedHerdrProtocol(protocol);

@@ -91,9 +91,47 @@ test("swaps whole scenes and rides out the delete-then-place gap", async () => {
     clock += 500;
     jest.advanceTimersByTime(500);
     await cleared;
-    expect(update(scene())).toEqual({ placements: [], assets: [], keep: [] });
+    expect(update(scene())).toEqual({
+      placements: [],
+      assets: [],
+      keep: [],
+      suppressed: null,
+    });
     graphics.dispose();
   } finally {
     jest.useRealTimers();
   }
+});
+
+test("disabled graphics send only the image area and recover without resent bytes", async () => {
+  let wake = () => {};
+  const changed = () => {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    wake = resolve;
+    return promise;
+  };
+  const graphics = new PaneGraphics(() => wake());
+  const rect = { x: 1, y: 1 };
+  const first = image("1");
+  const delivered = scene(first);
+  const placedOnly = { ...delivered, assets: [] };
+
+  // Herdr delivers bytes once, while disabled.
+  expect(graphics.update(delivered, "w1:p1", rect, false, false)).toEqual({
+    placements: [],
+    assets: [],
+    keep: [],
+    suppressed: { x: 2, y: 3, cols: 5, rows: 2 },
+  });
+  expect(graphics.update(placedOnly, "w1:p1", rect, false, false)).toBeNull();
+
+  // Re-enabling encodes the retained bytes; Herdr sends no new ones.
+  const encoded = changed();
+  expect(graphics.update(placedOnly, "w1:p1", rect, true, true)).toBeNull();
+  await encoded;
+  const shown = graphics.update(placedOnly, "w1:p1", rect, false, true)!;
+  expect(shown.suppressed).toBeNull();
+  expect(shown.placements).toHaveLength(1);
+  expect(shown.assets).toHaveLength(1);
+  graphics.dispose();
 });

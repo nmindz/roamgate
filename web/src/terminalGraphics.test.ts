@@ -7,6 +7,7 @@ import type {
 import {
   idsToEvict,
   placementRects,
+  suppressedBox,
   TerminalGraphicsStore,
 } from "./terminalGraphics";
 
@@ -233,5 +234,64 @@ describe("TerminalGraphicsStore", () => {
     expect(store.image("b")).toBe(b);
     expect(a.closed).toBe(true);
     expect(changes()).toBe(before + 1);
+  });
+
+  test("a suppressed push drops images and exposes the rect until a normal push", async () => {
+    const { store, finish } = createStore();
+    store.apply(push({ assets: [asset("a")], keep: ["a"] }));
+    const a = await finish("a");
+
+    const suppressed = { x: 1, y: 2, cols: 30, rows: 10 };
+    store.apply(push({ placements: [], keep: [], suppressed }));
+    expect(a.closed).toBe(true);
+    expect(store.size).toBe(0);
+    expect(store.placements).toEqual([]);
+    expect(store.suppressed).toEqual(suppressed);
+
+    store.apply(push({ placements: [], keep: [] }));
+    expect(store.suppressed).toBeNull();
+  });
+
+  test("clear removes the suppressed rect", () => {
+    const { store } = createStore();
+    store.apply(
+      push({
+        placements: [],
+        keep: [],
+        suppressed: { x: 0, y: 0, cols: 30, rows: 10 },
+      }),
+    );
+    store.clear();
+    expect(store.suppressed).toBeNull();
+  });
+});
+
+describe("suppressedBox", () => {
+  const grid = { cols: 100, rows: 40 };
+  const cell = { width: 8, height: 16 };
+
+  test("positions a large rect with the image cell math", () => {
+    expect(
+      suppressedBox({ x: 2, y: 3, cols: 30, rows: 10 }, grid, cell),
+    ).toEqual({ left: 16, top: 48, width: 240, height: 160 });
+  });
+
+  test("clips to the grid and follows the scroll offset", () => {
+    expect(
+      suppressedBox({ x: 90, y: 35, cols: 30, rows: 10 }, grid, cell, 1),
+    ).toEqual({ left: 720, top: 576, width: 80, height: 64 });
+    expect(
+      suppressedBox({ x: 0, y: 0, cols: 30, rows: 10 }, grid, cell, 50),
+    ).toBeNull();
+  });
+
+  test("uses the whole screen when the rect is too small to read", () => {
+    const whole = { left: 0, top: 0, width: 800, height: 640 };
+    expect(
+      suppressedBox({ x: 5, y: 5, cols: 19, rows: 10 }, grid, cell),
+    ).toEqual(whole);
+    expect(
+      suppressedBox({ x: 5, y: 5, cols: 30, rows: 2 }, grid, cell),
+    ).toEqual(whole);
   });
 });

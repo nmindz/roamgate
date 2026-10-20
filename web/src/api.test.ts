@@ -688,6 +688,57 @@ describe("bridge connection lifecycle", () => {
       ]);
     });
 
+    const suppressed = { x: 0, y: 2, cols: 137, rows: 40 };
+    const empty = { ...graphics, placements: [], assets: [], keep: [] };
+
+    test("dispatches a suppressed rect and accepts a null one", async () => {
+      const { received, socket, push } = await setup();
+      sendHello(socket());
+      push({
+        connection_id: "legacy-default",
+        terminal_graphics: { ...empty, suppressed },
+      });
+      push({
+        connection_id: "legacy-default",
+        terminal_graphics: { ...empty, suppressed: null },
+      });
+
+      expect(received).toEqual([
+        { connection_id: "legacy-default", ...empty, suppressed },
+        { connection_id: "legacy-default", ...empty, suppressed: null },
+      ]);
+    });
+
+    const badSuppressed: Array<[string, unknown]> = [
+      ["non-empty placements", { ...graphics, suppressed }],
+      ["non-empty assets", { ...empty, assets: graphics.assets, suppressed }],
+      ["non-empty keep", { ...empty, keep: ["a-1"], suppressed }],
+      ["array rect", { ...empty, suppressed: [] }],
+      ["missing rect field", { ...empty, suppressed: { x: 0, y: 0, cols: 1 } }],
+      ["negative x", { ...empty, suppressed: { ...suppressed, x: -1 } }],
+      ["zero cols", { ...empty, suppressed: { ...suppressed, cols: 0 } }],
+      [
+        "fractional rows",
+        { ...empty, suppressed: { ...suppressed, rows: 1.5 } },
+      ],
+      [
+        "oversized cols",
+        { ...empty, suppressed: { ...suppressed, cols: 65536 } },
+      ],
+      ["string y", { ...empty, suppressed: { ...suppressed, y: "2" } }],
+    ];
+
+    test.each(badSuppressed)(
+      "ignores a push with suppressed rect: %s",
+      async (_name, payload) => {
+        const { received, socket, push } = await setup();
+        sendHello(socket());
+        push({ connection_id: "legacy-default", terminal_graphics: payload });
+
+        expect(received).toEqual([]);
+      },
+    );
+
     test("binds pushes to the server runtime generation", async () => {
       const { bridge, received, socket, push } = await setup();
       socket().onmessage?.({

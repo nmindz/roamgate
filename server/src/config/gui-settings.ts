@@ -30,12 +30,18 @@ export type GuiWorkspaceAutoSyncSettings = {
   last_branch?: string;
 };
 
+/** Absent fields keep their defaults (both on). */
+export type GuiTerminalTransportSettings = {
+  surface_codecs?: boolean;
+  kitty_graphics?: boolean;
+};
+
 export type GuiSettings = {
   version: 1;
   title_suffix?: string;
   repositories: Record<string, GuiRepoSettings>;
   workspace_auto_sync: Record<string, GuiWorkspaceAutoSyncSettings>;
-  terminal_transport?: Record<string, { surface_codecs: boolean }>;
+  terminal_transport?: Record<string, GuiTerminalTransportSettings>;
   custom: Record<string, unknown>;
 };
 
@@ -133,22 +139,16 @@ function normalizeGuiSettings(raw: unknown): GuiSettings {
     repositories: normalizedRepos,
     workspace_auto_sync: normalizedWorkspaceAutoSync,
     terminal_transport: Object.fromEntries(
-      Object.entries(obj.terminal_transport ?? {}).flatMap(([key, value]) =>
-        value &&
-        typeof value === "object" &&
-        typeof (value as { surface_codecs?: unknown }).surface_codecs ===
-          "boolean"
-          ? [
-              [
-                key,
-                {
-                  surface_codecs: (value as { surface_codecs: boolean })
-                    .surface_codecs,
-                },
-              ],
-            ]
-          : [],
-      ),
+      Object.entries(obj.terminal_transport ?? {}).flatMap(([key, value]) => {
+        if (!value || typeof value !== "object") return [];
+        const entry = value as Record<string, unknown>;
+        const kept: GuiTerminalTransportSettings = {};
+        if (typeof entry.surface_codecs === "boolean")
+          kept.surface_codecs = entry.surface_codecs;
+        if (typeof entry.kitty_graphics === "boolean")
+          kept.kitty_graphics = entry.kitty_graphics;
+        return Object.keys(kept).length > 0 ? [[key, kept]] : [];
+      }),
     ),
     custom:
       obj.custom && typeof obj.custom === "object"
@@ -230,6 +230,14 @@ export function terminalSurfaceCodecsEnabled(
   connectionId = LEGACY_DEFAULT_CONNECTION_ID,
 ): boolean {
   return settings.terminal_transport?.[connectionId]?.surface_codecs !== false;
+}
+
+/** Kitty images are streamed to browsers unless turned off per connection. */
+export function terminalKittyGraphicsEnabled(
+  settings: GuiSettings,
+  connectionId = LEGACY_DEFAULT_CONNECTION_ID,
+): boolean {
+  return settings.terminal_transport?.[connectionId]?.kitty_graphics !== false;
 }
 
 export function connectionSettingsPrefix(connectionId?: string | null): string {
