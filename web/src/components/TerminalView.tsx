@@ -217,6 +217,7 @@ import {
   rememberTerminalInputMode,
 } from "../terminalInputMode";
 import "./TerminalView.css";
+import { ExtensionSlot } from "../extensionsBootstrap";
 
 function focusTerminalEndpoint(
   client: ConnectionClient,
@@ -4227,6 +4228,14 @@ export function TerminalView({
             : composerOpen
               ? terminalComposer
               : null}
+        {isMobileLayout() && mobileInputTarget && isActivePane
+          ? createPortal(
+              <div className="terminal-mobile-ext-actions">
+                <ExtensionSlot slot="pane.toolbar" pane={pane} />
+              </div>,
+              mobileInputTarget,
+            )
+          : null}
         <div
           ref={paneToolbarRef}
           className={`terminal-pane-toolbar${chatShown ? " is-over-chat" : ""}`}
@@ -4298,6 +4307,7 @@ export function TerminalView({
               {paneZoomed ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
             </button>
           ) : null}
+          <ExtensionSlot slot="pane.toolbar" pane={pane} />
           {canClosePane ? (
             <button
               type="button"
@@ -4311,6 +4321,7 @@ export function TerminalView({
             </button>
           ) : null}
         </div>
+        <ExtensionSlot slot="pane.overlay" pane={pane} />
         {s.connectionPaused ? (
           <div className="terminal-loading" role="status" aria-live="polite">
             <span className="terminal-loading-dot" />

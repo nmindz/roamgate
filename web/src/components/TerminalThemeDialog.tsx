@@ -39,6 +39,7 @@ import {
   type TerminalThemeSelection,
   terminalColorToHex,
 } from "../terminalThemes";
+import { useExtensionContributions } from "../extensionsBootstrap";
 import { CloseButton } from "./CloseButton";
 import { focusDialogElement } from "./dialogFocus";
 import { ConfirmDialog } from "./ModalDialogs";
@@ -482,6 +483,7 @@ export function TerminalThemeDialog({
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const extensionThemes = useExtensionContributions().terminalThemes;
   const [draft, setDraft] = useState<TerminalThemeDraft | null>(null);
   const previewFontFamily = terminalFontFamilyStack(fontName);
   const [pendingDelete, setPendingDelete] =
@@ -541,6 +543,18 @@ export function TerminalThemeDialog({
           theme: customTerminalThemeToITheme(custom),
         },
       })),
+    ...extensionThemes
+      .filter((theme) => theme.variant === variant)
+      .map((theme) => ({
+        custom: null,
+        definition: {
+          id: theme.id,
+          name: theme.name,
+          variant: theme.variant,
+          builtin: true,
+          theme: customTerminalThemeToITheme(theme),
+        },
+      })),
   ];
 
   const selectTheme = (variant: ResolvedTheme, id: string) => {
@@ -548,11 +562,10 @@ export function TerminalThemeDialog({
   };
 
   const startNewTheme = (variant: ResolvedTheme) => {
-    const current = resolveTerminalThemeDefinition(
-      variant,
-      selection,
-      customThemes,
-    );
+    const current = resolveTerminalThemeDefinition(variant, selection, [
+      ...customThemes,
+      ...extensionThemes,
+    ]);
     setDraft(draftFromDefinition(current, "Custom theme"));
   };
 

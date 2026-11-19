@@ -25,6 +25,7 @@ import { summarizeTabAgents } from "./agentSession";
 import { tabMoveInsertIndex } from "../tabReorder";
 import { useTabReorderDrag } from "./useTabReorderDrag";
 import { useTabStripScroll } from "./useTabStripScroll";
+import { ExtensionSlot } from "../extensionsBootstrap";
 import "./TabBar.css";
 
 const LONG_PRESS_MS = 550;
@@ -336,6 +337,7 @@ export function TabBar({
                   >
                     <span className="tabbar-name">{name}</span>
                   </TabLongPressTarget>
+                  <ExtensionSlot slot="tab.badge" tab={t} />
                   {pinned ? (
                     <Pin
                       className="tabbar-pin"
@@ -567,6 +569,7 @@ function TabContextMenu({
           {item.label}
         </button>
       ))}
+      <ExtensionSlot slot="context-menu.tab" tab={state.tab} onRun={onClose} />
     </div>
   );
 }

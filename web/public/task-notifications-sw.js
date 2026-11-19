@@ -5,6 +5,12 @@ self.addEventListener("install", (event) => {
 function validNotificationTarget(target) {
   if (!target || typeof target !== "object" || Array.isArray(target))
     return false;
+  // An extension ask: opens Roamgate on its approval card (no actions here).
+  if (target.type === "extension_approval")
+    return (
+      typeof target.approvalId === "string" &&
+      /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(target.approvalId)
+    );
   if (target.type === "ranger_task") {
     const uuid = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
     return (

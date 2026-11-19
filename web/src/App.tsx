@@ -95,6 +95,7 @@ import { focusIfUnchanged } from "./components/dialogFocus";
 import { CommandCombobox } from "./components/CommandCombobox";
 import { CONFIG_MENU_ID, ConfigMenu } from "./components/ConfigMenu";
 import { ConnectionSwitcher } from "./components/ConnectionSwitcher";
+import { ExtensionSlot } from "./extensionsBootstrap";
 import {
   type ActiveDiffSelection,
   clearDiffViewerResourceCache,
@@ -146,6 +147,7 @@ import {
   TERMINAL_THEME_SELECTION_STORAGE_KEY,
   type TerminalThemeSelection,
 } from "./terminalThemes";
+import { useExtensionContributions } from "./extensionsBootstrap";
 import {
   activePaneIdForSnapshot,
   type PaneJumpEntry,
@@ -174,7 +176,6 @@ import {
   type WorktreeRemovedTarget,
 } from "./store";
 import { paneShortcutAction } from "./paneShortcuts";
-import { pluginActionShortcut } from "./pluginActionShortcuts";
 import {
   adjacentTabId,
   closeShortcutTarget,
@@ -1411,18 +1412,20 @@ export default function App() {
   const [customTerminalThemes, setCustomTerminalThemes] = useState<
     CustomTerminalTheme[]
   >(loadCustomTerminalThemes);
+  const extensionThemes = useExtensionContributions().terminalThemes;
   const terminalTheme = useMemo(
     () =>
       resolveTerminalTheme(
         resolvedTheme,
         terminalThemeSelection,
-        customTerminalThemes,
+        [...customTerminalThemes, ...extensionThemes],
         blackBackground,
       ),
     [
       resolvedTheme,
       terminalThemeSelection,
       customTerminalThemes,
+      extensionThemes,
       blackBackground,
     ],
   );
@@ -3419,8 +3422,7 @@ export default function App() {
         store.focusTab(targetTabId);
         return;
       }
-      const pluginAction = pluginActionShortcut(e);
-      if (pluginAction) {
+      if (shortcutMatches(e, "plugin.herdrFloat.toggle")) {
         e.preventDefault();
         e.stopPropagation();
         // Typing into the popup's own terminal never reaches here, since
@@ -3439,15 +3441,11 @@ export default function App() {
           (pane) => pane.pane_id === layoutActivePaneId,
         );
         // Hide-or-open is resolved against Herdr, not this client's popup
-        // state, which a Space switch can leave stale. See togglePluginPopup.
-        void store.togglePluginPopup(
-          pluginAction.pluginId,
-          pluginAction.actionId,
-          {
-            workspace_id: activePane?.workspace_id,
-            focused_pane_cwd: activePane?.foreground_cwd ?? activePane?.cwd,
-          },
-        );
+        // state, which a Space switch can leave stale.
+        void store.invokeHerdrPluginAction("herdr-float", "toggle", {
+          workspace_id: activePane?.workspace_id,
+          focused_pane_cwd: activePane?.foreground_cwd ?? activePane?.cwd,
+        });
         return;
       }
       const paneAction = paneShortcutAction(e);
@@ -4023,6 +4021,7 @@ export default function App() {
       <span>Chat</span>
     </button>
   );
+  const topbarSlot = <ExtensionSlot slot="topbar" />;
   const assistantEntry = (
     <button
       type="button"
@@ -4094,6 +4093,7 @@ export default function App() {
           )}
           <div className="topbar-command-group">
             {!mobile ? assistantEntry : null}
+            {mobile ? null : topbarSlot}
             <CommandCombobox
               key={`${resourceUiKey}:commands`}
               onCreateWorkspace={() =>
@@ -4255,6 +4255,7 @@ export default function App() {
           aria-label="Ranger and workspaces"
         >
           {mobile ? assistantEntry : null}
+          {mobile ? topbarSlot : null}
           <button
             type="button"
             className={mobileView === "workspaces" ? "active" : ""}
@@ -4452,6 +4453,7 @@ export default function App() {
                 setAgentHistoryInspectorOpen(true, pane)
               }
             />
+            <ExtensionSlot slot="sidebar.section" />
           </div>
         </div>
         <div
@@ -4695,6 +4697,7 @@ export default function App() {
           onMoreOpenChange={setMobileMoreOpen}
         />
       ) : null}
+      <ExtensionSlot slot="statusbar.item" />
       <CreateWorkspaceDialog
         open={createWorkspaceScope !== null}
         allServers={createWorkspaceScope === true}

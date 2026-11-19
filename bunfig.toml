@@ -1,0 +1,3 @@
+# Example extension tests import the fake host as `roamgate:testing`.
+[test]
+preload = ["./server/src/extensions/sdk/testing-preload.ts"]

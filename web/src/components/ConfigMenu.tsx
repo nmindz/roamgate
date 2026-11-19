@@ -22,6 +22,7 @@ import {
 import packageJson from "../../package.json";
 import { logoutBrowserSession } from "../api";
 import { connectionHttpPath } from "../connectionHttp";
+import { ExtensionSlot } from "../extensionsBootstrap";
 import { useLayoutPreferences } from "../layoutPreferences";
 import { shortcutLabel, useShortcutPreferences } from "../shortcutPreferences";
 import { shallowEqual, store, useStoreSelector } from "../store";
@@ -163,6 +164,10 @@ export function ConfigMenu({
     };
   }, [connectionClient, open]);
 
+  const menuItems = (
+    <ExtensionSlot slot="menu.item" onRun={() => setOpen(false)} />
+  );
+
   return (
     <>
       <div className="config-menu" ref={ref}>
@@ -265,6 +270,7 @@ export function ConfigMenu({
                   </div>
                 )}
               </div>
+              {menuItems}
               <div className="config-section">
                 <div className="config-title">Help & updates</div>
                 <ConfigMenuItem
@@ -418,6 +424,7 @@ export function ConfigMenu({
                         />
                       ))}
                     </div>
+                    {menuItems}
                   </div>
                 </div>
               ) : null}
@@ -425,6 +432,10 @@ export function ConfigMenu({
           </div>
         ) : null}
       </div>
+      <ExtensionSlot
+        slot="notices"
+        onOpen={() => setConfigurationTab("Extensions")}
+      />
       {/* Escape both topbar120 and the transformed phone app context. This
           includes loading and all Configuration detail dialogs. */}
       {configurationTab

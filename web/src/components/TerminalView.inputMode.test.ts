@@ -247,6 +247,8 @@ async function registerDomTests() {
       onTerminalClipboard: () => noop,
       onTerminalClosed: () => noop,
       onTerminalGraphics: () => noop,
+      onExtensions: () => noop,
+      onStatus: () => noop,
     },
   }));
   mock.module("../layoutPreferences", () => ({

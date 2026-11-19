@@ -1,6 +1,6 @@
-import defaultManifest from "../../../web/public/manifest.json";
-import { instanceDisplayName } from "../../../shared/instanceName";
 import { join } from "node:path";
+import { instanceDisplayName } from "../../../shared/instanceName";
+import defaultManifest from "../../../web/public/manifest.json";
 import {
   decodeStaticPathname,
   isStaticRequestMethod,
@@ -78,6 +78,8 @@ async function serveFile(
   titleSuffix: string,
 ): Promise<Response> {
   const headers = responseHeaders(pathname);
+  if (pathname === "/index.html")
+    headers["content-security-policy"] = await appShellPolicy(file);
   if (req.method === "HEAD") return new Response(null, { headers });
   if (pathname === "/manifest.json") {
     return serveManifest(req, await file.json(), titleSuffix);
@@ -104,8 +106,56 @@ async function serveFile(
     .transform(response);
 }
 
+const appShellPolicies = new Map<string, { key: string; policy: string }>();
+
+// Hashed from the entry document actually served, so a rebuilt index.html
+// never drifts from its policy.
+async function appShellPolicy(
+  file: ReturnType<typeof Bun.file>,
+): Promise<string> {
+  const name = file.name ?? "";
+  const key = `${file.size}:${file.lastModified}`;
+  const cached = appShellPolicies.get(name);
+  if (cached?.key === key) return cached.policy;
+  const policy = appShellContentSecurityPolicy(await file.text());
+  appShellPolicies.set(name, { key, policy });
+  return policy;
+}
+
+/**
+ * The app shell runs only its own bundles and the entry document's inline
+ * scripts, by hash. WebAssembly compilation stays allowed for the syntax
+ * highlighter; Markdown previews keep remote images. Frames load only from
+ * this origin, so undeclared frame sources are blocked.
+ */
+export function appShellContentSecurityPolicy(html: string): string {
+  const hashes: string[] = [];
+  for (const match of html.matchAll(
+    /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi,
+  )) {
+    if (/\bsrc\s*=/i.test(match[1] ?? "")) continue;
+    const digest = new Bun.CryptoHasher("sha256")
+      .update(match[2] ?? "")
+      .digest("base64");
+    hashes.push(`'sha256-${digest}'`);
+  }
+  return [
+    "default-src 'self'",
+    ["script-src 'self' 'wasm-unsafe-eval'", ...hashes].join(" "),
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: http: https:",
+    "connect-src 'self' ws: wss:",
+    "worker-src 'self'",
+    "frame-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+  ].join("; ");
+}
+
 function responseHeaders(pathname: string): Record<string, string> {
-  const headers = { "content-type": contentType(pathname) };
+  const headers: Record<string, string> = {
+    "content-type": contentType(pathname),
+  };
   if (pathname === "/index.html" || pathname === "/manifest.json") {
     return {
       ...headers,

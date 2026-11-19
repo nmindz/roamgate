@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, jest, test } from "bun:test";
 import { createHash, randomUUID } from "node:crypto";
 import {
-  mkdtempSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -13,9 +13,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
-  AssistantSnapshot,
   AssistantMention,
   AssistantMentionTarget,
+  AssistantSnapshot,
   AssistantTaskNotification,
   AssistantWorkspace,
 } from "../../../shared/assistant";
@@ -25,6 +25,10 @@ import {
   ASSISTANT_MAX_THINKING_STEPS,
   isAssistantSnapshot,
 } from "../../../shared/assistant";
+import { currentOrigin } from "../extensions/action-events";
+import type { PreparedAssistantAction } from "./actions";
+import { createClaudeCodeDriver } from "./claude-driver";
+import { createRangerMcp } from "./claude-mcp";
 import {
   type AssistantContext,
   AssistantRecoveryNotReadyError,
@@ -36,9 +40,6 @@ import {
   createAssistantService,
   sameAssistantConfig,
 } from "./service";
-import type { PreparedAssistantAction } from "./actions";
-import { createClaudeCodeDriver } from "./claude-driver";
-import { createRangerMcp } from "./claude-mcp";
 
 const workspace: AssistantWorkspace = {
   connection_id: "local",
@@ -436,6 +437,7 @@ describe("Ranger approval policy", () => {
     f.context.prepareAction = async () =>
       permissionAction(async () => {
         writes++;
+        expect(currentOrigin()).toBe("ranger");
         const saved = JSON.parse(
           readFileSync(join(f.directory, "state.json"), "utf8"),
         );

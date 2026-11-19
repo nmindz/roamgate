@@ -16,7 +16,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export function dataRoot(
   homeDir = homedir(),
@@ -72,16 +72,59 @@ function userConfigRoots(): Set<string> {
 // legacy symlink, including dangling links. Explicit override paths do not migrate.
 export function assertSafeDataPath(path: string): void {
   const configRoots = userConfigRoots();
-  for (const entry of [dirname(dirname(path)), dirname(path), path]) {
-    const stat = configRoots.has(resolve(entry))
-      ? statFollowingIfPresent(entry)
-      : statIfPresent(entry);
-    if (stat?.isSymbolicLink())
-      throw new Error(`data path contains a symlink: ${entry}`);
-    if (stat && (entry === path ? !stat.isFile() : !stat.isDirectory())) {
-      throw new Error(`data path has an unexpected file type: ${entry}`);
-    }
+  for (const entry of [dirname(dirname(path)), dirname(path), path])
+    assertDataEntry(entry, entry === path, configRoots);
+}
+
+function assertDataEntry(
+  entry: string,
+  file: boolean,
+  configRoots: Set<string>,
+): boolean {
+  const stat = configRoots.has(resolve(entry))
+    ? statFollowingIfPresent(entry)
+    : statIfPresent(entry);
+  if (stat?.isSymbolicLink())
+    throw new Error(`data path contains a symlink: ${entry}`);
+  if (stat && (file ? !stat.isFile() : !stat.isDirectory())) {
+    throw new Error(`data path has an unexpected file type: ${entry}`);
   }
+  return stat !== null;
+}
+
+/**
+ * The checks of assertSafeDataPath for a file at any depth below `base`, a
+ * directory under the data root: no entry from the configuration parent down
+ * may be a link.
+ */
+export function assertSafeDataTreePath(
+  base: string,
+  path: string,
+  file = true,
+): void {
+  const root = resolve(base);
+  const target = resolve(path);
+  const rel = relative(root, target);
+  if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel))
+    throw new Error(`data path escapes ${root}: ${target}`);
+  const configRoots = userConfigRoots();
+  const entries = [dirname(dirname(root)), dirname(root), root];
+  let current = root;
+  for (const part of rel ? rel.split(sep) : []) {
+    current = join(current, part);
+    entries.push(current);
+  }
+  for (const entry of entries) {
+    const isTarget = entry === target;
+    if (!assertDataEntry(entry, isTarget && file, configRoots)) return;
+  }
+}
+
+/** Create a private directory below `base`, refusing links on the way. */
+export function ensureDataDirectory(base: string, path: string): void {
+  assertSafeDataTreePath(base, path, false);
+  mkdirSync(path, { recursive: true, mode: 0o700 });
+  assertSafeDataTreePath(base, path, false);
 }
 
 /**

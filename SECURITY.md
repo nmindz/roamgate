@@ -57,7 +57,7 @@ including password sessions.
   arguments.
 - Use [native HTTPS](docs/DEPLOYMENT.md#native-https), an HTTPS proxy, or a
   trusted VPN, and restrict who can reach the listener.
-- Treat worktree hooks as executable code.
+- Treat worktree hooks and [extensions](#extensions) as executable code.
 
 The bridge does not check `Origin` or `Host`; any authenticated request has full
 authority, so secure the access path itself.
@@ -81,3 +81,57 @@ Web Push subscriptions are tied to devices, not logins: changing the password or
 logging out does not revoke them. Disable notifications or remove subscriptions
 separately. Notifications may show agent names on lock screens. See
 [Web Push](docs/DEPLOYMENT.md#web-push-notifications).
+
+### Extensions
+
+**Extensions run unsandboxed with the Roamgate user's permissions.** A mod is
+a Bun program in its own process; command hooks and build steps are ordinary
+programs. Installing one is running its author's code. See the
+[authoring guide](docs/EXTENSIONS.md#trust-model).
+- **Capabilities are declarations, not a sandbox.** They are enforced where an
+  extension calls Roamgate's `$` API: a call needing an undeclared capability
+  fails, `$.http.fetch` reaches only `network_hosts`, and extensions can
+  never answer approvals or manage extensions. Nothing stops a mod's own code
+  from reading files or starting processes directly.
+- **Consent.** Installing and updating show the capabilities, handled events
+  and gates, exact command-hook argv, HTTP routes, network hosts, build
+  commands, direct `node:`/`bun:` imports, and `$` calls read from the source
+  without running it. An update that adds any of these asks again. Git
+  installs are pinned to the resolved commit; archives must match their
+  SHA-256. Marketplace catalogs never install or update anything themselves.
+- **Environment.** Extension processes inherit only an allowlist (`PATH`,
+  `HOME`, locale, temp and Windows system variables). Roamgate's password,
+  PIN, token, session secret, TLS key, VAPID key, and `NODE_OPTIONS` /
+  `BUN_OPTIONS` never reach them, and a mod cannot pass them on.
+- **Safe mode.** `roamgate --safe-mode`, `ROAMGATE_SAFE_MODE=1`, or the
+  runtime switch loads no extension, command hook, route, or slot, and denies
+  pending approvals. Use it to recover from a misbehaving extension.
+- **Approvals** hold a gated action until a person answers in any logged-in
+  browser (or via a Web Push notification that opens one). The first answer
+  wins; unanswered requests resolve at their timeout (deny by default); a
+  request whose connection was replaced is denied. Every decision is recorded
+  in `receipts.sqlite`, and a request whose receipt cannot be written is
+  denied. Gates cover actions taken through Roamgate only: changes made in
+  the Herdr TUI, by agents in their terminals, or by other Herdr clients are
+  not gated.
+- **Frames** run in `sandbox allow-scripts` iframes with an opaque origin, no
+  cookies, and a CSP of `default-src 'none'` plus only the sources the
+  manifest declares. They reach the mod only through the host page's
+  `postMessage` bridge, which ignores messages from other windows.
+- **Proxied web apps** load in `sandbox allow-scripts allow-forms` iframes
+  under a sandbox CSP (`connect-src 'self'`, `frame-ancestors 'self'`).
+  Requests carry a 15-minute HMAC capability instead of the session;
+  `Authorization` and `Cookie` are not forwarded, `Set-Cookie` is not
+  returned, and the referrer policy keeps the capability out of `Referer`.
+  Logging out revokes every capability. Upstreams must be loopback `http`.
+- **Webhooks** (`POST /api/ext/<id>/hooks/<name>`) bypass login and are
+  authorized by a per-extension bearer token compared in constant time. No
+  token exists until someone requests it; rotating it invalidates the old one
+  at once. Bodies are limited to 1 MiB. On non-loopback binds, anyone who
+  reaches the listener can try a token: keep webhooks behind HTTPS and the
+  same access controls as the rest of Roamgate.
+- **Secrets** from `secret` settings are stored in the extension's
+  `secrets.json` (mode `0600`), are shown to browsers only as set or unset,
+  and reach the mod only when it declares `secrets`. Webhook tokens and
+  `receipts.sqlite` are also `0600`. Anyone who can read the data directory
+  can read them.

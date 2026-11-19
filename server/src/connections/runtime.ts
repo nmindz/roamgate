@@ -1,47 +1,52 @@
-import {
-  createTaskEventTracker,
-  type TaskEvent,
-} from "../notifications/task-events";
-import {
-  createHerdrNotificationListener,
-  taskEventFromSemanticNotification,
-  type TaskNotificationSource,
-} from "../notifications/herdr-notification-listener";
-import {
-  assertEndpointCreationSource,
-  createEmptyWorkspaceCreator,
-} from "../bridge/endpoint-creation";
 import type { ServerWebSocket } from "bun";
 import { createAgentSessionHandlers } from "../agent/agent-sessions";
 import { createAgentSessionFileAccess } from "../agent/session-file-access";
-import { HerdrClient } from "../bridge/herdr-client";
 import {
   EndpointClient,
   type EndpointSnapshot,
 } from "../bridge/endpoint-client";
 import {
+  assertEndpointCreationSource,
+  createEmptyWorkspaceCreator,
+} from "../bridge/endpoint-creation";
+import { createForwardRpcHandler } from "../bridge/forward-rpc";
+import { HerdrClient } from "../bridge/herdr-client";
+import {
   assertSupportedHerdrProtocol,
   isTerminalHelloProtocol,
 } from "../bridge/protocol-compat";
-import { roamgateEnv } from "../config/environment";
 import { createSettingsRpcHandler } from "../bridge/settings-rpc";
-import { createForwardRpcHandler } from "../bridge/forward-rpc";
 import type { SshForwards } from "../bridge/ssh-forward";
-import {
-  readGuiSettings,
-  terminalTransportEnabled,
-} from "../config/gui-settings";
+import { annotateSshArgv } from "../bridge/ssh-metrics";
 import {
   createSshTunnelManager,
   type SshTunnelConfig,
   type SshTunnelError,
 } from "../bridge/ssh-tunnel";
-import { dropCoalescedMessage } from "../bridge/websocket-send";
-import { annotateSshArgv } from "../bridge/ssh-metrics";
 import { createTerminalBridge } from "../bridge/terminal-bridge";
+import { dropCoalescedMessage } from "../bridge/websocket-send";
+import { roamgateEnv } from "../config/environment";
+import {
+  readGuiSettings,
+  terminalTransportEnabled,
+} from "../config/gui-settings";
+import type { ExtensionBus } from "../extensions/events";
+import {
+  createAgentStatusEvents,
+  herdrExtensionEvent,
+} from "../extensions/producers";
 import { createHerdrInfoHandler } from "../http/herdr-info";
 import { createImageUploadHandler } from "../http/image-upload";
 import { createTerminalUploadHandler } from "../http/terminal-upload";
+import {
+  createHerdrNotificationListener,
+  type TaskNotificationSource,
+  taskEventFromSemanticNotification,
+} from "../notifications/herdr-notification-listener";
+import {
+  createTaskEventTracker,
+  type TaskEvent,
+} from "../notifications/task-events";
 import {
   createRecoveryReporter,
   type Logger,
@@ -62,17 +67,17 @@ import {
 import { createLastStepTurnTracker } from "../workspace/last-step-turns";
 import { runBinaryProcessWithTimeout as runBinaryProcessWithTimeoutBase } from "../workspace/process";
 import { createStatusEnricher } from "../workspace/status";
-import { createWorktreeHookRunner } from "../worktree/worktree-hooks";
 import { createWorktreeParentStore } from "../worktree/parents";
 import {
   createWorktreeRemovalCoordinator,
   createWorktreeRemovalRuntime,
 } from "../worktree/remove";
+import { createWorktreeHookRunner } from "../worktree/worktree-hooks";
 import { createAgentStatusSubscriptionLoop } from "./agent-status-subscription";
-import { createTabAutoRenamer } from "./tab-auto-rename";
 import { createAgentTabTitleReader } from "./agent-tab-title";
 import { sanitizeConnectionError } from "./manager";
 import { createEventSubscriptionLoop } from "./subscription-loop";
+import { createTabAutoRenamer } from "./tab-auto-rename";
 import { type ConnectionIdentity, LEGACY_DEFAULT_CONNECTION } from "./types";
 import { unixOnlyHandlers } from "./unix-only";
 
@@ -135,11 +140,17 @@ export function createLegacyConnectionRuntime(args: {
   lastStepTransitionDebounceMs?: number;
   /** Test seam for the background git status reads. */
   runGitStatusProcess?: typeof runProcessWithCodeTimeoutBase;
+  /** Extension events: Herdr events, agent status, attention and steps. */
+  extensions?: ExtensionBus;
 }) {
   const { config } = args;
   const remotePlatform = config.remotePlatform;
   const logger = args.logger ?? silentLogger;
   const identity = { ...(args.identity ?? LEGACY_DEFAULT_CONNECTION) };
+  const extensionConnection = () => ({
+    id: identity.id,
+    generation: args.connectionGeneration ?? 0,
+  });
   const socketPath = config.socketPath;
   const clientSocketPath = config.clientSocketPath;
   const sshHost = () => config.sshHost;
@@ -421,8 +432,9 @@ export function createLegacyConnectionRuntime(args: {
     completeWorkspaceStep: async (workspaceId) => {
       // A finished agent turn is the likeliest moment for the tree to change.
       status.invalidateWorkspaceGitStatus(workspaceId);
+      let captured = false;
       try {
-        await lastStepBaselines.completeWorkspace(workspaceId);
+        captured = await lastStepBaselines.completeWorkspace(workspaceId);
       } finally {
         // File refresh depends on step completion, not Git snapshot availability.
         if (!disposed) {
@@ -436,6 +448,12 @@ export function createLegacyConnectionRuntime(args: {
             },
             identity,
           );
+          args.extensions?.emit({
+            name: "workspace.step",
+            connection: extensionConnection(),
+            workspace_id: workspaceId,
+            captured,
+          });
         }
       }
     },
@@ -462,7 +480,55 @@ export function createLegacyConnectionRuntime(args: {
   // Set when Herdr lacks endpoint support (< 0.9 or endpoints disabled); a
   // temporarily disconnected 0.9 server does not fall back, avoiding duplicates.
   let herdrNotificationsUnavailable = false;
-  const relayTaskEvent = (event: TaskEvent) => {
+  // Extensions may rewrite or suppress attention before anyone is told.
+  const withAttention = (
+    event: TaskEvent,
+    deliver: (event: TaskEvent) => void,
+  ) => {
+    const bus = args.extensions;
+    if (!bus?.wants("agent.attention")) {
+      deliver(event);
+      return;
+    }
+    bus
+      .run({
+        name: "agent.attention",
+        connection: extensionConnection(),
+        workspace_id: event.workspaceId,
+        tab_id: event.tabId,
+        pane_id: event.paneId,
+        agent: event.agent,
+        kind: event.kind,
+        title: event.title ?? null,
+        body: event.body ?? null,
+      })
+      .then(
+        ({ event: rewritten, answer }) => {
+          if (disposed) return;
+          const value = answer?.value;
+          if (
+            value &&
+            typeof value === "object" &&
+            "suppress" in value &&
+            value.suppress === true
+          )
+            return;
+          deliver({
+            ...event,
+            title:
+              typeof rewritten.title === "string"
+                ? rewritten.title
+                : event.title,
+            body:
+              typeof rewritten.body === "string" ? rewritten.body : event.body,
+          });
+        },
+        () => deliver(event),
+      );
+  };
+  const relayTaskEvent = (event: TaskEvent) =>
+    withAttention(event, publishTaskEvent);
+  const publishTaskEvent = (event: TaskEvent) => {
     args.onTaskEvent?.(event);
     // Pages disable their own tracker when the bridge relays notifications.
     args.onEvent(
@@ -525,7 +591,8 @@ export function createLegacyConnectionRuntime(args: {
         typeof workspaceLabel === "string" ? workspaceLabel : undefined,
       tabLabel: typeof tab?.label === "string" ? tab.label : undefined,
     };
-    if (taskNotificationSource === "status") args.onTaskEvent?.(labeled);
+    if (taskNotificationSource === "status")
+      withAttention(labeled, (event) => args.onTaskEvent?.(event));
     else if (herdrNotificationsUnavailable) relayTaskEvent(labeled);
   });
   const herdrNotificationRecovery = createRecoveryReporter({
@@ -595,6 +662,7 @@ export function createLegacyConnectionRuntime(args: {
     onPaneList: (result, revision) => {
       taskEvents.reconcilePaneList(result, taskListRevision);
       lastStepTurns.reconcilePaneList(result, revision);
+      agentStatusEvents.reconcilePaneList(result);
     },
     log: (message) => {
       agentStatusRecovery.recovered({ connection: identity.id });
@@ -617,14 +685,38 @@ export function createLegacyConnectionRuntime(args: {
     log: (message) => logger.debug(message, { connection: identity.id }),
   });
 
+  const agentStatusEvents = createAgentStatusEvents({
+    emit: (event) => args.extensions?.emit(event),
+    connection: extensionConnection,
+  });
+
+  // One failing consumer must not keep the others, or the browsers, from an event.
+  const consumers: Array<[string, (event: unknown) => void]> = [
+    ["task events", taskEvents.handleHerdrEvent],
+    ["last step", lastStepTurns.handleHerdrEvent],
+    ["agent status", agentStatusSubscriptions.handleHerdrEvent],
+    ["tab rename", tabAutoRenamer.handleHerdrEvent],
+    ["extension agent status", agentStatusEvents.handleHerdrEvent],
+  ];
   const onHerdrEvent = (event: unknown) => {
-    taskEvents.handleHerdrEvent(event);
-    lastStepTurns.handleHerdrEvent(event);
-    agentStatusSubscriptions.handleHerdrEvent(event);
-    tabAutoRenamer.handleHerdrEvent(event);
+    for (const [name, consume] of consumers) {
+      try {
+        consume(event);
+      } catch (error) {
+        logger.warn("Herdr event consumer failed", {
+          connection: identity.id,
+          consumer: name,
+          error: sanitizeConnectionError(error),
+        });
+      }
+    }
     if ((event as { event?: string })?.event === "workspace.focused")
       terminalBridge.refreshPopupObserverFocus();
     args.onEvent(event, identity);
+    if (args.extensions?.wants("herdr.event")) {
+      const extensionEvent = herdrExtensionEvent(event, extensionConnection());
+      if (extensionEvent) args.extensions.emit(extensionEvent);
+    }
   };
   const onHerdrError = (error: unknown) => args.onError?.(error, identity);
   herdr.on("event", onHerdrEvent);
@@ -735,6 +827,7 @@ export function createLegacyConnectionRuntime(args: {
     herdr.off("event", onHerdrEvent);
     herdr.off("error", onHerdrError);
     taskEvents.stop();
+    agentStatusEvents.stop();
     pendingTaskEvents.clear();
     herdrNotifications?.stop();
     status.dispose();

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { lazyWithReload } from "../lazyWithReload";
 import { CloseButton } from "./CloseButton";
 import { ThemedSelect } from "./ThemedSelect";
 import { focusDialogElement } from "./dialogFocus";
@@ -23,6 +24,12 @@ import {
   useShortcutPreferences,
 } from "../shortcutPreferences";
 import "./ShortcutLookupDialog.css";
+
+const ExtensionShortcuts = lazyWithReload("extensions", () =>
+  import("../extensions").then((module) => ({
+    default: module.ShortcutSettings,
+  })),
+);
 
 // Shares this lazy chunk so the cheat sheet adds no separate web assets.
 export { ShortcutCheatSheet } from "./ShortcutCheatSheet";
@@ -455,6 +462,11 @@ export function ShortcutLookupDialog({
           ))}
           {visible.length === 0 ? (
             <p className="muted">No matching shortcuts.</p>
+          ) : null}
+          {!search ? (
+            <Suspense fallback={null}>
+              <ExtensionShortcuts />
+            </Suspense>
           ) : null}
           {!search ? (
             <section className="shortcut-section keybinding-reference">

@@ -1,0 +1,29 @@
+id = "roamgate.omega-sigma-bridge"
+name = "OmegaSigma"
+version = "1.0.0"
+api = "^1.0"
+description = "Reference extension: opens the OmegaSigma run viewer for OMP agents, proxied from its local server."
+license = "MIT"
+capabilities = ["commands", "http.routes"]
+mod = "./mod.ts"
+activation = ["command:open"]
+start_hint = "omega-sigma serve --port 4747"
+
+[[commands]]
+id = "open"
+title = "Open in OmegaSigma"
+icon = "external-link"
+keywords = ["omp", "omega", "runs"]
+when = { agent = "omp" }
+
+[[slots]]
+slot = "context-menu.agent"
+id = "omega"
+title = "OmegaSigma"
+command = "open"
+when = { agent = "omp" }
+
+[[routes]]
+kind = "proxy"
+upstream = "http://127.0.0.1:4747"
+path = "/"

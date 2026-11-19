@@ -8,7 +8,9 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { renameFileExclusive } from "./atomic-file-move";
 import { DOWNLOAD_TIMEOUT_MS, LIST_LIMIT } from "./file-constants";
+import { type FileDownloadOptions, fileDownloadRange } from "./file-download";
 import {
   assertInsideRoot,
   entrySort,
@@ -23,10 +25,8 @@ import type {
   FilePreviewResult,
   FileUploadResult,
 } from "./file-types";
-import { runBinaryProcessWithTimeout } from "./process";
 import { decodePreviewBuffer, previewLimitForPath } from "./preview";
-import { fileDownloadRange, type FileDownloadOptions } from "./file-download";
-import { renameFileExclusive } from "./atomic-file-move";
+import { runBinaryProcessWithTimeout } from "./process";
 
 export async function listLocalFiles(
   rootPath: string,
@@ -135,6 +135,31 @@ export async function readLocalFile(
     mtime_ms: info.mtimeMs,
     truncated,
     ...decoded,
+  };
+}
+
+/** A checkout file's whole bytes, refused over `limit`; relative paths only. */
+export async function readLocalFileBytes(
+  rootPath: string,
+  requestedPath: string,
+  limit: number,
+) {
+  const rootReal = await realpath(rootPath);
+  const targetReal = await realpath(resolve(rootReal, requestedPath));
+  assertInsideRoot(rootReal, targetReal);
+  const info = await stat(targetReal);
+  if (!info.isFile()) throw new Error("only regular files can be read");
+  if (info.size > limit) throw new Error(`file is over ${limit} bytes`);
+  const bytes = Buffer.from(
+    await Bun.file(targetReal)
+      .slice(0, limit + 1)
+      .arrayBuffer(),
+  );
+  if (bytes.length > limit) throw new Error(`file is over ${limit} bytes`);
+  return {
+    path: relativePreviewPath(rootReal, targetReal),
+    size: bytes.length,
+    bytes,
   };
 }
 

@@ -213,6 +213,7 @@ environment file. `roamgate --help` lists everything.
 | `--profile-duration <seconds>`          | `ROAMGATE_PROFILE_DURATION`    | `30` (1-300)                                      |
 | `--profile-dir <path>`                  | `ROAMGATE_PROFILE_DIR`         | `<data dir>/profiles`                             |
 | `--open`                                | `OPEN_BROWSER=1`               | Disabled                                          |
+| `--safe-mode`                           | `ROAMGATE_SAFE_MODE=1`         | Disabled; see [extensions](#extensions)           |
 
 | Other environment variable                             | Purpose                                                                                         |
 | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
@@ -581,6 +582,66 @@ permissions.** Review them, or disable them per repository under **Worktree
 hooks** or **Worktree Lifecycle**. A failed teardown stops removal; other
 failures do not undo completed steps.
 
+## Extensions
+
+Extensions are installed with `roamgate ext` on the machine and as the user
+that runs the service; a running service picks up changes without a restart.
+See the [authoring guide](./EXTENSIONS.md) and
+[extension security](../SECURITY.md#extensions). **Extensions run unsandboxed
+with the service user's permissions.**
+
+Everything lives under `extensions/` in the data directory
+(`~/.config/roamgate/extensions`, or `%APPDATA%\roamgate\extensions`):
+
+| Path                                 | Contents                                                                                       |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `registry.json`                      | Installed and linked extensions, order, enabled state, consent, failures, the safe mode switch |
+| `versions/<id>/<version>-<digest>/`  | One directory per installed version; old ones are removed once nothing runs them               |
+| `staging/`                           | Downloads waiting for consent; removed after install or refusal                                |
+| `data/<id>/store.json`               | `$.store` (16 MiB at most); survives updates                                                   |
+| `data/<id>/secrets.json`             | Secret settings (mode `0600`)                                                                  |
+| `data/<id>/webhook-token`            | The extension's webhook bearer token (mode `0600`)                                             |
+| `data/<id>/logs/`                    | `extension.log` (rotated at 1 MiB) and `build.log`                                             |
+| `receipts.sqlite`                    | Approval receipts, 30 days and at most 10,000 rows (mode `0600`)                               |
+| `marketplaces.json`, `marketplaces/` | Added marketplace catalogs and their cached copies                                             |
+
+Non-secret extension settings live in the GUI settings file under
+`extensions.<id>`. `roamgate ext uninstall` removes `data/<id>/` unless
+`--keep-data` is given. Back up `data/` and `receipts.sqlite` with the rest of
+the data directory; treat `secrets.json` and `webhook-token` like passwords.
+If `receipts.sqlite` cannot be opened, every approval request is denied; if
+`registry.json` cannot be read, extensions stay off until it is fixed.
+
+**Safe mode.** `roamgate --safe-mode` or `ROAMGATE_SAFE_MODE=1` starts with
+every extension off for that run: no mod, command hook, route, or slot runs.
+The runtime switch (`ext.manage` op `safe_mode`) does the same and is saved in
+`registry.json`, so it lasts across restarts until **Turn off safe mode** in
+**Menu > Configuration > Extensions**. Use it when an extension breaks
+startup or the UI. For a managed service, add `ROAMGATE_SAFE_MODE=1` to the
+service environment file (`roamgate config edit`), run
+`roamgate service restart`, and remove the line again afterwards.
+
+**Exposure on non-loopback binds.** Two extension paths answer without a
+session cookie, so anyone who can reach the listener can try them:
+- `POST /api/ext/<id>/hooks/<name>` needs the extension's webhook bearer
+  token. No token exists until someone asks to see it, so extensions nobody
+  set up accept no webhook. Rotate a leaked token; the old one stops at once.
+- `/ext/<id>/web/_/<cap>/...` reaches an extension's proxied loopback app
+  with a 15-minute capability from a logged-in page. Logging out revokes all
+  capabilities. The upstream itself stays on loopback and is never exposed
+  directly.
+
+Everything else (frame assets, the proxy host page, capability renewal, and
+every `ext.*` RPC) needs login. Put webhooks behind the same HTTPS or VPN
+access path as the rest of Roamgate, and give external services the token
+only over HTTPS.
+
+Extension processes (mods, command hooks, builds, `$.process.run`) inherit
+only an environment allowlist; `ROAMGATE_PASSWORD`, `ROAMGATE_PIN`, tokens,
+the session secret, and TLS and VAPID keys never reach them. Strict
+validation, which refuses mods static analysis cannot read, is
+`"extensions_strict_validation": true` in the GUI settings file.
+
 ## Run as a user service
 
 | Command                            | Behavior                                  |
@@ -661,6 +722,7 @@ and 2 on bad arguments; many accept `--json`.
 | `roamgate update [--check]` / `roamgate rollback`           | Update to the latest release or restore `roamgate.previous` (Linux/macOS).                                                                                                                                                                                                                       |
 | `roamgate service logs [-f] [-n <count>]`                   | Show service output (not available for Windows tasks).                                                                                                                                                                                                                                           |
 | `roamgate completion bash\|zsh\|fish`                       | Print a shell completion script.                                                                                                                                                                                                                                                                 |
+| `roamgate ext <action>`                                     | Install, link, update, enable, disable, order, test, and inspect [extensions](#extensions); manage marketplaces. See the [authoring guide](./EXTENSIONS.md#the-roamgate-ext-cli).                                                                                                                |
 
 ## Build a standalone executable
 

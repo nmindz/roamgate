@@ -4468,8 +4468,8 @@ export const store = {
   },
 
   /**
-   * Hide the popup if one is open, otherwise invoke the plugin action that
-   * opens it.
+   * Run a Herdr plugin action: an open popup closes instead, otherwise the
+   * action is invoked.
    *
    * Asks Herdr rather than trusting this client's popup state, which can lag
    * behind: opening on a stale "none" is refused with "a popup pane is already
@@ -4477,7 +4477,7 @@ export const store = {
    * key would look dead. "popup_not_open" is the definitive answer that
    * nothing was open and the action should run.
    */
-  togglePluginPopup(
+  invokeHerdrPluginAction(
     pluginId: string,
     actionId: string,
     context: Record<string, unknown> = {},

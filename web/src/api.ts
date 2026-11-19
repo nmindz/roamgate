@@ -1,14 +1,10 @@
 import {
-  validateRemoteSocketPath,
-  validateSshDestination,
-  validateWindowsSshOptions,
-} from "./sshProfileValidation";
-import {
-  isAssistantSnapshot,
-  isAssistantTaskNotification,
   type AssistantSnapshot,
   type AssistantTaskNotification,
+  isAssistantSnapshot,
+  isAssistantTaskNotification,
 } from "../../shared/assistant";
+import type { ExtensionsPush } from "../../shared/extensions";
 import { isIntegerInRange } from "../../shared/integers";
 import { addListener } from "../../shared/listeners";
 import {
@@ -18,6 +14,11 @@ import {
   type RpcCallOptions,
   type RpcLane,
 } from "./rpcLanes";
+import {
+  validateRemoteSocketPath,
+  validateSshDestination,
+  validateWindowsSshOptions,
+} from "./sshProfileValidation";
 import { clearSavedTerminalComposerDrafts } from "./terminalComposer";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
@@ -195,6 +196,8 @@ export interface BridgeHello {
     /** Task notifications follow Herdr's semantic notifications, not pane status. */
     herdr_task_notifications?: boolean;
     embedded_assistant?: boolean;
+    /** Extension RPC and `{extensions}` pushes (bridge protocol 3). */
+    extensions?: boolean;
     [key: string]: unknown;
   };
 }
@@ -478,9 +481,11 @@ const CONNECT_TIMEOUT_MS = 8000;
 const HEARTBEAT_INTERVAL_MS = 10000;
 const HEARTBEAT_TIMEOUT_MS = 6000;
 const MAX_WS_BUFFERED_BYTES = 4 * 1024 * 1024;
+const EXTENSIONS_PUSH_KIND =
+  /^(?:state|invalidate|toast|approvals|frame_event)$/;
 
 export function isBridgeGlobalMethod(method: string): boolean {
-  return method.startsWith("bridge.") || method.startsWith("connections.");
+  return /^(?:bridge|connections|ext)\./.test(method);
 }
 
 export async function logoutBrowserSession(): Promise<void> {
@@ -606,6 +611,7 @@ export class Bridge {
   private statusHandlers = new Set<(s: ConnectionStatus) => void>();
   private controlHandlers = new Set<(c: BridgeControlMsg) => void>();
   private helloHandlers = new Set<(hello: BridgeHello) => void>();
+  private extensionsHandlers = new Set<(push: ExtensionsPush) => void>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private connectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -975,6 +981,7 @@ export class Bridge {
     const hasControl = owns("control");
     const hasAssistant = owns("assistant");
     const hasAssistantNotification = owns("assistant_notification");
+    const hasExtensions = owns("extensions");
     const kindCount = [
       hasHello,
       hasReply,
@@ -989,8 +996,32 @@ export class Bridge {
       hasControl,
       hasAssistant,
       hasAssistantNotification,
+      hasExtensions,
     ].filter(Boolean).length;
     if (kindCount !== 1) return;
+    // A gated call waiting on an approval: drop its timer, keep waiting.
+    if (
+      owns("pending") &&
+      !owns("result") &&
+      !owns("error") &&
+      typeof msg.pending?.approval_id === "string"
+    ) {
+      const entry = this.pending.get(msg.id);
+      if (entry) {
+        clearTimeout(entry.timer ?? undefined);
+        entry.timer = null;
+      }
+      return;
+    }
+
+    if (hasExtensions) {
+      // No connection_id here: extensions belong to the server, not a connection.
+      const push = msg.extensions;
+      // Exactly one known key; several keys join with a comma and never match.
+      if (EXTENSIONS_PUSH_KIND.test(Object.keys(push ?? {}).join()))
+        this.extensionsHandlers.forEach((handler) => handler(push));
+      return;
+    }
 
     if (hasHello) {
       if (this.helloAcceptedForSocket || !isBridgeHello(msg)) return;
@@ -1470,6 +1501,10 @@ export class Bridge {
 
   onUiSetting(cb: (push: UiSettingPush) => void): () => void {
     return addListener(this.uiSettingsHandlers, cb);
+  }
+
+  onExtensions(cb: (push: ExtensionsPush) => void): () => void {
+    return addListener(this.extensionsHandlers, cb);
   }
 
   onTerminalClosed(cb: (closed: TerminalClosedPush) => void): () => void {

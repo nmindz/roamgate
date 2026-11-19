@@ -3,13 +3,13 @@ import type {
   AssistantSnapshot,
   AssistantTaskNotification,
 } from "../../shared/assistant";
-import { BACKGROUND_RPC_LIMIT } from "./rpcLanes";
 import {
   Bridge,
   type ConnectionStatus,
   logoutBrowserSession,
   parseConnectionSummary,
 } from "./api";
+import { BACKGROUND_RPC_LIMIT } from "./rpcLanes";
 
 const originalWebSocket = globalThis.WebSocket;
 const originalFetch = globalThis.fetch;
@@ -1308,6 +1308,42 @@ describe("bridge connection lifecycle", () => {
     );
   });
 
+  test("an interim pending reply drops the timeout and waits for the final reply", async () => {
+    class ManualWebSocket extends HangingWebSocket {
+      static instance: ManualWebSocket;
+      sent: string[] = [];
+
+      constructor() {
+        super();
+        ManualWebSocket.instance = this;
+        queueMicrotask(() => {
+          this.readyState = ManualWebSocket.OPEN;
+          this.onopen?.();
+        });
+      }
+
+      send(raw = "") {
+        this.sent.push(raw);
+      }
+    }
+    installBrowserGlobals(ManualWebSocket as unknown as typeof WebSocket);
+    const bridge = createTestBridge();
+    bridge.connect();
+    await Bun.sleep(1);
+    const socket = ManualWebSocket.instance;
+    sendHello(socket);
+    const response = bridge.call("ext.state", {}, 20);
+    const { id } = JSON.parse(socket.sent[socket.sent.length - 1] ?? "{}");
+    socket.onmessage?.({
+      data: JSON.stringify({ id, pending: { approval_id: "a1" } }),
+    } as MessageEvent);
+    await Bun.sleep(40);
+    socket.onmessage?.({
+      data: JSON.stringify({ id, result: { ok: true } }),
+    } as MessageEvent);
+    await expect(response).resolves.toEqual({ ok: true });
+  });
+
   test("invalidates pending work across a same-ID client generation change", async () => {
     class ManualWebSocket extends HangingWebSocket {
       static instance: ManualWebSocket;
@@ -1820,5 +1856,110 @@ describe("bridge connection lifecycle", () => {
     } as MessageEvent);
     await Bun.sleep(5);
     expect(bridge.status).toBe("connected");
+  });
+
+  test("accepts protocol 3, routes extensions pushes and keeps ext.* calls global", async () => {
+    class ManualWebSocket extends HangingWebSocket {
+      static instance: ManualWebSocket;
+      sent: string[] = [];
+
+      constructor() {
+        super();
+        ManualWebSocket.instance = this;
+        queueMicrotask(() => {
+          this.readyState = ManualWebSocket.OPEN;
+          this.onopen?.();
+        });
+      }
+
+      send(raw = "") {
+        this.sent.push(raw);
+      }
+    }
+    installBrowserGlobals(ManualWebSocket as unknown as typeof WebSocket);
+    const bridge = createTestBridge();
+    const pushes: unknown[] = [];
+    bridge.onExtensions((push) => pushes.push(push));
+    bridge.connect();
+    await Promise.resolve();
+    const socket = ManualWebSocket.instance;
+    socket.onmessage?.({
+      data: JSON.stringify({
+        hello: true,
+        bridge_protocol_version: 3,
+        default_connection_id: "alpha",
+        capabilities: { connection_id: true, extensions: true },
+      }),
+    } as MessageEvent);
+    expect(bridge.hello?.bridge_protocol_version).toBe(3);
+    expect(bridge.hello?.capabilities.extensions).toBe(true);
+
+    const state = { safe_mode: false, api: "1.0", extensions: [] };
+    for (const extensions of [
+      { state },
+      { invalidate: { ext: "a", slot: "toast" } },
+      { toast: { ext: "a", kind: "info", message: "hi" } },
+      { approvals: [] },
+      { frame_event: { ext: "a", frame: "f", name: "n", data: 1 } },
+    ])
+      socket.onmessage?.({
+        data: JSON.stringify({ extensions }),
+      } as MessageEvent);
+    expect(pushes.map((push) => Object.keys(push as object)[0])).toEqual([
+      "state",
+      "invalidate",
+      "toast",
+      "approvals",
+      "frame_event",
+    ]);
+
+    const request = bridge.call("ext.state");
+    const sent = JSON.parse(socket.sent[0]);
+    expect(sent.method).toBe("ext.state");
+    expect(sent).not.toHaveProperty("connection_id");
+    socket.onmessage?.({
+      data: JSON.stringify({ id: sent.id, result: state }),
+    } as MessageEvent);
+    await expect(request).resolves.toEqual(state);
+  });
+
+  test("drops extensions pushes that are mixed, multi-key, unknown or not objects", async () => {
+    class ManualWebSocket extends HangingWebSocket {
+      static instance: ManualWebSocket;
+
+      constructor() {
+        super();
+        ManualWebSocket.instance = this;
+        queueMicrotask(() => {
+          this.readyState = ManualWebSocket.OPEN;
+          this.onopen?.();
+        });
+      }
+    }
+    installBrowserGlobals(ManualWebSocket as unknown as typeof WebSocket);
+    const bridge = createTestBridge();
+    const pushes: unknown[] = [];
+    bridge.onExtensions((push) => pushes.push(push));
+    bridge.connect();
+    await Promise.resolve();
+    const socket = ManualWebSocket.instance;
+    sendHello(socket);
+    const state = { safe_mode: false, api: "1.0", extensions: [] };
+    const send = (message: unknown) =>
+      socket.onmessage?.({ data: JSON.stringify(message) } as MessageEvent);
+
+    send({ extensions: { state }, forwards: [] });
+    send({ extensions: { state }, popup: {} });
+    send({ extensions: { state, toast: { message: "x" } } });
+    send({ extensions: { unknown_kind: 1 } });
+    send({ extensions: {} });
+    send({ extensions: [] });
+    send({ extensions: "state" });
+    send({ extensions: null });
+    send({ extensions: 1 });
+    expect(pushes).toEqual([]);
+
+    send({ extensions: { state } });
+    expect(pushes).toEqual([{ state }]);
   });
 });

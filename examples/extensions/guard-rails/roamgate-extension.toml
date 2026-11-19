@@ -1,0 +1,21 @@
+id = "roamgate.guard-rails"
+name = "Guard rails"
+version = "1.0.0"
+api = "^1.0"
+description = "Reference gates: keeps working agents open, asks before sending to protected workspaces, and fails closed."
+license = "MIT"
+capabilities = ["gates", "workspace.read"]
+mod = "./mod.ts"
+activation = ["event:pane.close", "event:terminal.submit", "event:worktree.remove"]
+
+[config.protected_pattern]
+type = "string"
+title = "Protected workspaces"
+description = "Regular expression; text sent to a workspace whose name matches needs approval."
+default = "prod"
+
+[[hooks]]
+on = "pane.close"
+command = ["roamgate:bun", "./hooks/audit.ts"]
+timeout = 30
+on_failure = "continue"

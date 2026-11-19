@@ -21,6 +21,7 @@ import {
   useState,
 } from "react";
 import type { ContextMenuState } from "./ContextMenu";
+import { ExtensionSlot } from "../extensionsBootstrap";
 import { ThemedSelect } from "./ThemedSelect";
 import { buildWorkspaceHierarchy, worktreeCreationSource } from "../worktree";
 import {
@@ -1637,6 +1638,7 @@ function WorkspaceRow({
             }}
           />
         ) : null}
+        {source ? null : <ExtensionSlot slot="workspace.badge" workspace={w} />}
         {source ? (
           <span
             className="workspace-server-badge"

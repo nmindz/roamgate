@@ -58,6 +58,7 @@ import {
   CommandShortcut,
 } from "./ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { ExtensionSlot } from "../extensionsBootstrap";
 import { canCreateWorktree, worktreeCreationSource } from "../worktree";
 import { WorktreeLifecycleDialog } from "./WorktreeLifecycleDialog";
 
@@ -1202,6 +1203,14 @@ export function CommandCombobox({
                   ))}
                 </CommandGroup>
               ))}
+              <ExtensionSlot
+                slot="command"
+                search={normalizedSearch}
+                workspace={focusedWorkspace}
+                tab={activeTab}
+                pane={activePane}
+                onRun={() => setCommandOpen(false)}
+              />
             </CommandList>
           </Command>
         </PopoverContent>

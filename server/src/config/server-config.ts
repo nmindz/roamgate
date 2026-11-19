@@ -1,11 +1,16 @@
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir, networkInterfaces, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
 import { createSecureContext } from "node:tls";
 import { parseArgs } from "node:util";
-import { createHash } from "node:crypto";
 import { validateSshDestination } from "../bridge/ssh-command";
 import { assertSshTunnelPlatformSupported } from "../bridge/ssh-tunnel";
+import {
+  parseTaskNotificationSource,
+  type TaskNotificationSource,
+} from "../notifications/herdr-notification-listener";
+import { type LogLevel, parseLogLevel, serverLogger } from "../utils/logger";
 import {
   assertValidAuthPassword,
   assertValidAuthPin,
@@ -14,13 +19,8 @@ import {
   MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
 } from "./auth-token";
-import { roamgateEnv } from "./environment";
 import { dataRoot } from "./data-paths";
-import { type LogLevel, parseLogLevel, serverLogger } from "../utils/logger";
-import {
-  parseTaskNotificationSource,
-  type TaskNotificationSource,
-} from "../notifications/herdr-notification-listener";
+import { roamgateEnv } from "./environment";
 
 type CliArgs = Partial<{
   host: string;
@@ -39,6 +39,7 @@ type CliArgs = Partial<{
   "profile-duration": string;
   "profile-dir": string;
   open: boolean;
+  "safe-mode": boolean;
   help: boolean;
   version: boolean;
 }>;
@@ -64,6 +65,8 @@ export type ServerConfig = {
   profile?: { directory: string; durationMs: number };
   hasExplicitSocketPath: boolean;
   hasExplicitClientSocketPath: boolean;
+  /** No third-party extension, hook or route runs this session. */
+  safeMode: boolean;
 };
 
 const cliOptions = {
@@ -83,6 +86,7 @@ const cliOptions = {
   "profile-duration": { type: "string" },
   "profile-dir": { type: "string" },
   open: { type: "boolean" },
+  "safe-mode": { type: "boolean" },
   help: { type: "boolean", short: "h" },
   version: { type: "boolean", short: "V" },
 } as const;
@@ -159,6 +163,7 @@ export function serverOptionsHelp(): string {
   --profile-duration <secs>   capture for 1..300 seconds (env ROAMGATE_PROFILE_DURATION, default: 30)
   --profile-dir <path>        output parent directory (env ROAMGATE_PROFILE_DIR, default: Roamgate data dir/profiles)
   --open                     open browser on start (env OPEN_BROWSER=1)
+  --safe-mode                start with every extension off (env ROAMGATE_SAFE_MODE=1)
   -V, --version              show version
   -h, --help                 show this help
 `;
@@ -335,6 +340,7 @@ export function loadServerConfig(
     profile,
     hasExplicitSocketPath,
     hasExplicitClientSocketPath,
+    safeMode: args["safe-mode"] === true || roamgateEnv("SAFE_MODE") === "1",
   };
 }
 

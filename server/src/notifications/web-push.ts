@@ -38,7 +38,21 @@ export interface PushTask extends TaskEvent {
   connectionLabel?: string;
   runtimeGeneration: number;
 }
-type PushNotification = PushTask | AssistantTaskNotification;
+/**
+ * Sent by an extension through `$.notify.push`, or for an ask nobody sees.
+ * An ask deep-links to its approval card; the notification has no actions,
+ * so deciding always happens in Roamgate.
+ */
+export interface ExtensionPushNotification {
+  extension: string;
+  title: string;
+  body: string;
+  approval_id?: string;
+}
+type PushNotification =
+  | PushTask
+  | AssistantTaskNotification
+  | ExtensionPushNotification;
 const MAX_DEVICES = 128;
 const MAX_BODY_BYTES = 16 * 1024;
 
@@ -48,6 +62,19 @@ function clip(value: string, max = 80) {
 
 /** The JSON message the service worker renders for one device delivery. */
 export function taskPushPayload(task: PushNotification) {
+  if ("extension" in task)
+    return {
+      title: clip(task.title, 200),
+      body: clip(task.body, 2_000),
+      tag: JSON.stringify([
+        "roamgate-extension",
+        task.extension,
+        task.approval_id ?? task.title,
+      ]),
+      target: task.approval_id
+        ? { type: "extension_approval", approvalId: task.approval_id }
+        : null,
+    };
   if ("task_id" in task)
     return {
       title: task.title,
@@ -96,6 +123,7 @@ export function taskPushPayload(task: PushNotification) {
 }
 
 function notificationPreference(task: PushNotification): keyof PushPreferences {
+  if ("extension" in task) return "completed";
   return "task_id" in task
     ? task.status === "succeeded"
       ? "completed"

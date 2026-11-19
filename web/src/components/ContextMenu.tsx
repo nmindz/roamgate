@@ -27,6 +27,7 @@ import {
   type ServerSessionSource,
 } from "../useAllServerAgentSessions";
 import "./ContextMenu.css";
+import { ExtensionSlot } from "../extensionsBootstrap";
 
 export interface ContextMenuState {
   x: number;
@@ -492,6 +493,13 @@ export function ContextMenu({
             ))}
           </div>
         ))}
+        {remote ? null : (
+          <ExtensionSlot
+            slot="context-menu.workspace"
+            workspace={w}
+            onRun={onClose}
+          />
+        )}
       </div>
       {dialogs}
       {openWorktreeDialog}

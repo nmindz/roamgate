@@ -1,0 +1,503 @@
+.ext-settings,
+.ext-page,
+.ext-install,
+.ext-consent {
+  display: grid;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.ext-toolbar,
+.ext-page-head,
+.ext-section-head,
+.ext-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ext-toolbar,
+.ext-page-head,
+.ext-section-head {
+  justify-content: space-between;
+}
+
+.ext-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ext-page-head h3,
+.ext-consent h3,
+.ext-section h4,
+.ext-consent h4 {
+  margin: 0;
+  color: var(--text-strong);
+}
+
+.ext-section h4,
+.ext-consent h4 {
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ext-section,
+.ext-consent-group,
+.ext-consent-risk {
+  display: grid;
+  gap: 6px;
+}
+
+.ext-rows,
+.ext-plain-list,
+.ext-consent ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ext-row {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.ext-row:hover,
+.ext-row:focus-visible {
+  background: var(--accent-soft);
+}
+
+.ext-row-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ext-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.ext-chip {
+  color: var(--muted);
+}
+
+.ext-status-active {
+  color: var(--success-text);
+  border-color: var(--green);
+}
+
+.ext-status-failed,
+.ext-status-invalid,
+.ext-status-incompatible {
+  color: var(--danger-text);
+  border-color: var(--danger-border);
+}
+
+.ext-status-safe_mode {
+  color: var(--warning-text);
+  border-color: var(--yellow);
+}
+
+.ext-banner,
+.ext-notice,
+.ext-confirm,
+.ext-consent-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--yellow);
+  border-radius: 8px;
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+
+.ext-banner > div,
+.ext-notice-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ext-banner-danger {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+
+.ext-consent-warning {
+  margin: 0;
+}
+
+.ext-confirm {
+  flex-wrap: wrap;
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+
+.ext-risk-high {
+  color: var(--danger-text);
+}
+
+.ext-risk-medium {
+  color: var(--warning-text);
+}
+
+.ext-consent li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.ext-consent li span {
+  color: var(--muted);
+}
+
+.ext-consent-source {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  margin: 0;
+}
+
+.ext-consent-source dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ext-field {
+  display: grid;
+  gap: 4px;
+}
+
+.ext-field input:not([type="checkbox"]),
+.ext-field select {
+  width: 100%;
+}
+
+.ext-settings-form {
+  display: grid;
+  gap: 10px;
+}
+
+.ext-error,
+.ext-warning {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ext-error {
+  color: var(--danger-text);
+}
+
+.ext-warning {
+  color: var(--warning-text);
+}
+
+.ext-logs {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ext-back {
+  justify-self: start;
+}
+
+.ext-notices {
+  position: fixed;
+  z-index: 6000;
+  left: 16px;
+  bottom: 16px;
+  display: grid;
+  gap: 8px;
+  width: min(460px, calc(100vw - 32px));
+}
+
+.ext-notice {
+  background: color-mix(in srgb, var(--panel) 90%, var(--yellow));
+}
+
+.ext-entry {
+  display: grid;
+  gap: 6px;
+}
+
+.ext-el-stack,
+.ext-el-row {
+  display: flex;
+  gap: 6px;
+}
+
+.ext-el-stack {
+  flex-direction: column;
+}
+
+.ext-gap-0 {
+  gap: 0;
+}
+
+.ext-gap-2 {
+  gap: 10px;
+}
+
+.ext-gap-3 {
+  gap: 16px;
+}
+
+.ext-strong {
+  font-weight: 700;
+}
+
+.ext-mono,
+.ext-code {
+  font-family: var(--mono, monospace);
+}
+
+.ext-code {
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+}
+
+.ext-tone-info {
+  color: var(--info-text);
+}
+
+.ext-tone-success {
+  color: var(--success-text);
+}
+
+.ext-tone-warning {
+  color: var(--warning-text);
+}
+
+.ext-tone-danger {
+  color: var(--danger-text);
+}
+
+.ext-icon {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.ext-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.ext-table th,
+.ext-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-soft);
+  text-align: left;
+}
+
+.ext-keyvalue {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.ext-keyvalue > div {
+  display: flex;
+  gap: 8px;
+}
+
+.ext-keyvalue dd {
+  margin: 0;
+}
+
+.ext-empty {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  color: var(--muted);
+}
+
+.ext-image {
+  max-width: 100%;
+}
+
+.ext-approval {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.ext-approval.ext-risk-high {
+  border-color: var(--danger-border);
+}
+
+.ext-approval header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ext-approval-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0;
+}
+
+.ext-approval-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ext-approval-detail pre {
+  max-height: 160px;
+  margin: 4px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.ext-approvals-popover {
+  display: grid;
+  gap: 8px;
+  width: min(420px, 92vw);
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.ext-count {
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.ext-pane-overlay {
+  position: absolute;
+  z-index: 5;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: grid;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.ext-pane-overlay > *,
+.ext-pane-approvals > * {
+  pointer-events: auto;
+}
+
+.ext-pane-approvals {
+  display: grid;
+  gap: 6px;
+}
+
+.ext-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+  min-height: 22px;
+  padding: 2px 12px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 11px;
+}
+
+.ext-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 2px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+}
+
+.ext-badges {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.ext-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  font-size: 10px;
+}
+
+.ext-sidebar-section,
+.ext-inspector-panel {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+}
+
+.ext-toasts {
+  position: fixed;
+  z-index: 6001;
+  top: 62px;
+  left: 16px;
+  display: grid;
+  gap: 10px;
+  width: min(440px, calc(100vw - 32px));
+}
+
+.topbar-actions .ext-topbar-label {
+  display: none;
+}
+
+.ext-frame {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.ext-preview {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 8px;
+}
+
+.terminal-mobile-ext-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 8px;
+}
+
+.terminal-mobile-ext-actions:empty {
+  display: none;
+}

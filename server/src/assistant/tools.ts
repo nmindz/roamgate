@@ -24,7 +24,7 @@ export type WorkspaceToolReader = (
 ) => Promise<WorkspaceToolResult>;
 export type ActionToolKind = (typeof actionTools)[number]["kind"];
 export type ActionToolProposer = (
-  kind: ActionToolKind,
+  kind: ActionToolKind | "extension_tool",
   params: Record<string, unknown>,
   signal?: AbortSignal,
 ) => Promise<WorkspaceToolResult>;

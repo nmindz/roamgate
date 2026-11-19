@@ -17,6 +17,7 @@ import {
   type ServerSessionSource,
 } from "../useAllServerAgentSessions";
 import "./WorkspaceAgentRows.css";
+import { ExtensionSlot } from "../extensionsBootstrap";
 import "./ContextMenu.css";
 
 const LONG_PRESS_MS = 550;
@@ -317,6 +318,9 @@ export function AgentRow({
               {pane.agent_status}
             </span>
           ) : null}
+          {serverLabel ? null : (
+            <ExtensionSlot slot="agent.badge" pane={pane} />
+          )}
         </div>
         {!nested ? (
           <div className="agent-sub muted">
@@ -488,6 +492,13 @@ export function AgentContextMenu({
           ))}
         </div>
       ))}
+      {remote ? null : (
+        <ExtensionSlot
+          slot="context-menu.agent"
+          pane={state.pane}
+          onRun={onClose}
+        />
+      )}
     </div>
   );
 }

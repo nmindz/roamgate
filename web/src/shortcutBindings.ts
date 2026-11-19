@@ -1,3 +1,4 @@
+import { builtinShortcutBindings } from "../../shared/shortcuts";
 export type ShortcutPlatform = "mac" | "windows" | "linux";
 export const SHORTCUT_PLATFORMS: Record<ShortcutPlatform, string> = {
   mac: "macOS / iOS",
@@ -18,140 +19,73 @@ export function detectShortcutPlatform(
   return "linux";
 }
 
-const base = {
-  "command.menu": ["Ctrl+Alt+K"],
-  "shortcuts.show": ["Ctrl+Alt+Shift+K"],
-  "sidebar.toggle": ["Ctrl+Alt+B"],
-  "inspector.toggle": ["Ctrl+Alt+Shift+B"],
-  "inspector.expand": ["Ctrl+Alt+Shift+Enter"],
-  "annotations.toggle": ["Ctrl+Alt+A"],
-  "assistant.toggle": ["Ctrl+Alt+Shift+A"],
-  "zen.toggle": ["Ctrl+Alt+Z"],
-  "panes.recent": ["Ctrl+Alt+J"],
-  "plugin.herdrFloat.toggle": ["Ctrl+Alt+F"],
-  "panes.search": ["Alt+K"],
-  "tab.create": ["Ctrl+Alt+T"],
-  "tab.close": ["Ctrl+Alt+W"],
-  "tab.previous": ["Alt+Shift+ArrowLeft"],
-  "tab.next": ["Alt+Shift+ArrowRight"],
-  "pane.left": ["Ctrl+Shift+ArrowLeft"],
-  "pane.right": ["Ctrl+Shift+ArrowRight"],
-  "pane.up": ["Ctrl+Shift+ArrowUp"],
-  "pane.down": ["Ctrl+Shift+ArrowDown"],
-  "pane.moveLeft": ["Ctrl+Alt+Shift+ArrowLeft"],
-  "pane.moveRight": ["Ctrl+Alt+Shift+ArrowRight"],
-  "pane.moveUp": ["Ctrl+Alt+Shift+ArrowUp"],
-  "pane.moveDown": ["Ctrl+Alt+Shift+ArrowDown"],
-  "pane.splitRight": ["Ctrl+Alt+D"],
-  "pane.splitDown": ["Ctrl+Alt+Shift+D"],
-  "pane.zoom": ["Ctrl+Alt+Enter"],
-  "pane.chat": ["Ctrl+Alt+M"],
-  "workspaces.open": ["Ctrl+Alt+O"],
-  "files.toggle": ["Ctrl+Alt+E"],
-  "diff.toggle": ["Ctrl+Alt+G"],
-  "terminal.focus": ["Ctrl+Backquote"],
-  "terminal.history": ["Ctrl+Alt+H"],
-  "terminal.pageUp": ["PageUp"],
-  "terminal.pageDown": ["PageDown"],
-  "terminal.halfPageUp": ["Alt+PageUp"],
-  "terminal.halfPageDown": ["Alt+PageDown"],
-  "terminal.multiline": ["Shift+Enter"],
-  "terminal.altEnter": ["Alt+Enter"],
-  "terminal.ctrlEnter": ["Ctrl+Enter"],
-  "terminal.lineStart": ["Ctrl+A"],
-  "terminal.lineEnd": ["Ctrl+E"],
-  "terminal.deleteToStart": ["Ctrl+U"],
-  "terminal.copy": ["Ctrl+Shift+C", "Ctrl+Insert"],
-  "terminal.paste": ["Ctrl+V", "Ctrl+Shift+V"],
-  "terminal.link": ["Ctrl+Click"],
-  "preview.search": ["Ctrl+F"],
-  "preview.selectAll": ["Ctrl+A"],
-  "composer.send": ["Ctrl+Enter"],
-  "annotation.submit": ["Ctrl+Enter"],
-  "annotations.copy": ["Ctrl+Shift+C"],
-  "annotations.prefill": ["Ctrl+Enter"],
-};
+type BaseShortcutId =
+  | "command.menu"
+  | "shortcuts.show"
+  | "sidebar.toggle"
+  | "inspector.toggle"
+  | "inspector.expand"
+  | "annotations.toggle"
+  | "assistant.toggle"
+  | "zen.toggle"
+  | "panes.recent"
+  | "plugin.herdrFloat.toggle"
+  | "panes.search"
+  | "tab.create"
+  | "tab.close"
+  | "tab.previous"
+  | "tab.next"
+  | "pane.left"
+  | "pane.right"
+  | "pane.up"
+  | "pane.down"
+  | "pane.moveLeft"
+  | "pane.moveRight"
+  | "pane.moveUp"
+  | "pane.moveDown"
+  | "pane.splitRight"
+  | "pane.splitDown"
+  | "pane.zoom"
+  | "pane.chat"
+  | "workspaces.open"
+  | "files.toggle"
+  | "diff.toggle"
+  | "terminal.focus"
+  | "terminal.history"
+  | "terminal.pageUp"
+  | "terminal.pageDown"
+  | "terminal.halfPageUp"
+  | "terminal.halfPageDown"
+  | "terminal.multiline"
+  | "terminal.altEnter"
+  | "terminal.ctrlEnter"
+  | "terminal.lineStart"
+  | "terminal.lineEnd"
+  | "terminal.deleteToStart"
+  | "terminal.copy"
+  | "terminal.paste"
+  | "terminal.link"
+  | "preview.search"
+  | "preview.selectAll"
+  | "composer.send"
+  | "annotation.submit"
+  | "annotations.copy"
+  | "annotations.prefill";
 export type ShortcutNumber = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 export type ShortcutId =
-  | keyof typeof base
+  | BaseShortcutId
   | `tab.${ShortcutNumber}`
   | `command.${ShortcutNumber}`;
 export type ShortcutBindings = Record<ShortcutId, string[]>;
 export const SHORTCUT_NUMBERS: ShortcutNumber[] = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-export const SHORTCUT_IDS: ShortcutId[] = [
-  ...(Object.keys(base) as (keyof typeof base)[]),
-  ...SHORTCUT_NUMBERS.flatMap((n): ShortcutId[] => [
-    `tab.${n}`,
-    `command.${n}`,
-  ]),
-];
+export const SHORTCUT_IDS = Object.keys(
+  builtinShortcutBindings("linux"),
+) as ShortcutId[];
 
 export function defaultShortcutBindings(
   platform: ShortcutPlatform,
 ): ShortcutBindings {
-  const bindings = Object.fromEntries(
-    Object.entries(base).map(([id, keys]) => [id, [...keys]]),
-  ) as ShortcutBindings;
-  for (const n of SHORTCUT_NUMBERS) {
-    bindings[`tab.${n}`] = [`${platform === "mac" ? "Ctrl" : "Ctrl+Alt"}+${n}`];
-    bindings[`command.${n}`] = [`Alt+${n}`];
-  }
-  // Linux desktops commonly reserve Ctrl+Alt+T and Ctrl+Alt+D globally.
-  if (platform === "linux")
-    Object.assign(bindings, {
-      "tab.create": ["Ctrl+Alt+Shift+T"],
-      "pane.splitRight": ["Ctrl+Alt+Shift+D"],
-      "pane.splitDown": ["Ctrl+Alt+Shift+S"],
-    });
-  if (platform === "windows") bindings["terminal.paste"] = ["Ctrl+V"];
-  if (platform === "mac")
-    Object.assign(bindings, {
-      "command.menu": ["Meta+K"],
-      "shortcuts.show": ["Meta+Shift+K"],
-      "sidebar.toggle": ["Meta+B"],
-      "inspector.toggle": ["Meta+Shift+B"],
-      "inspector.expand": ["Alt+Meta+Enter"],
-      "annotations.toggle": ["Alt+Meta+A"],
-      "assistant.toggle": ["Alt+Meta+Shift+A"],
-      "zen.toggle": ["Meta+Shift+Z"],
-      "panes.recent": ["Ctrl+Tab", "Ctrl+Shift+Tab"],
-      // Meta+F is the system Find shortcut on macOS; use the Ctrl+Meta
-      // chord already used for pane.left/right/up/down instead.
-      "plugin.herdrFloat.toggle": ["Ctrl+Meta+F"],
-      "tab.create": ["Meta+T"],
-      "tab.close": ["Meta+W"],
-      "tab.previous": ["Alt+Meta+ArrowLeft"],
-      "tab.next": ["Alt+Meta+ArrowRight"],
-      "pane.left": ["Ctrl+Meta+ArrowLeft"],
-      "pane.right": ["Ctrl+Meta+ArrowRight"],
-      "pane.up": ["Ctrl+Meta+ArrowUp"],
-      "pane.down": ["Ctrl+Meta+ArrowDown"],
-      "pane.moveLeft": ["Ctrl+Meta+Shift+ArrowLeft"],
-      "pane.moveRight": ["Ctrl+Meta+Shift+ArrowRight"],
-      "pane.moveUp": ["Ctrl+Meta+Shift+ArrowUp"],
-      "pane.moveDown": ["Ctrl+Meta+Shift+ArrowDown"],
-      "pane.splitRight": ["Meta+D"],
-      "pane.splitDown": ["Meta+Shift+D"],
-      "pane.zoom": ["Meta+Shift+Enter"],
-      "pane.chat": ["Ctrl+Meta+M"],
-      "workspaces.open": ["Ctrl+Shift+W"],
-      "files.toggle": ["Meta+Shift+E"],
-      "diff.toggle": ["Ctrl+Shift+G"],
-      "terminal.history": ["Meta+Shift+H"],
-      "terminal.lineStart": ["Meta+ArrowLeft", "Meta+ArrowUp"],
-      "terminal.lineEnd": ["Meta+ArrowRight", "Meta+ArrowDown"],
-      "terminal.deleteToStart": ["Meta+Backspace"],
-      "terminal.copy": ["Meta+C"],
-      "terminal.paste": ["Meta+V"],
-      "terminal.link": ["Meta+Click"],
-      "preview.search": ["Meta+F"],
-      "preview.selectAll": ["Meta+A"],
-      "composer.send": ["Meta+Enter"],
-      "annotation.submit": ["Meta+Enter"],
-      "annotations.copy": ["Meta+Shift+C"],
-      "annotations.prefill": ["Meta+Enter"],
-    });
-  return bindings;
+  return builtinShortcutBindings(platform) as ShortcutBindings;
 }
 
 const modifiers = ["Ctrl", "Alt", "Meta", "Shift"] as const;

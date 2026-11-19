@@ -288,6 +288,9 @@ or its shortcut.
   that task run) without changing your workspace choice, which a scheduled
   task over it still needs; with **Full access**, workspaces created while
   Ranger answers are in reach too.
+- **Extension tools:** [extensions](#extensions) with the `ranger` capability
+  give Ranger more tools. Read-only ones run as Ranger needs them; ones that
+  change things are proposed as actions you confirm, like Ranger's own.
 - **Schedule:** the **Tasks** view runs a prompt once, daily, or every N minutes
   while the bridge is running, and can notify you when a run finishes or when
   Ranger decides something needs attention.
@@ -429,6 +432,42 @@ Drafts stay in this browser and re-anchor to changed files on refresh.
   access**: Roamgate must stay reachable.
 - **Configuration > Instance > Title suffix** names each server (for example
   `Roamgate · Home`); see [instance naming](docs/DEPLOYMENT.md#pwa-instance-names).
+
+## Extensions
+
+Extensions add commands, keybindings, badges, menu entries, panels, themes,
+link patterns, composer commands, file previewers, gates, webhooks, proxied
+web apps, and Ranger tools. Write one with the
+[authoring guide](docs/EXTENSIONS.md).
+
+- **Install:** `roamgate ext install owner/repo` (or a git URL, or an HTTPS
+  archive with its SHA-256) shows what the extension can do (capabilities,
+  events, gates, command hooks, routes, network hosts, build commands, and
+  direct runtime imports) and asks before installing. `roamgate ext link`
+  runs a local directory in place and reloads it on every edit.
+- **Manage:** **Menu > Configuration > Extensions** lists each extension with
+  its status (active, idle, disabled, failed, invalid, incompatible, or not
+  loaded in safe mode), capabilities, settings form, logs, and order, and can
+  enable, disable, reorder, or uninstall it. Changes reach every open browser
+  without a reload.
+- **Approvals:** an extension can make an action wait for you, such as
+  sending text to a production workspace or removing a worktree. Every open
+  browser shows the request, and a phone gets a notification when none is
+  open; the first answer wins. Unanswered requests are denied when they time
+  out, and every decision leaves a receipt (`roamgate ext receipts`).
+- **Updates and marketplaces:** `roamgate ext update` shows what each update
+  adds or removes before applying it, and asks again when it needs more
+  access. Add catalogs with `roamgate ext marketplace add`; catalogs list
+  extensions pinned to a commit and never install anything by themselves.
+- **Safe mode:** start with `roamgate --safe-mode` (or
+  `ROAMGATE_SAFE_MODE=1`) to load no extension at all; a banner shows while
+  it is on. An extension that fails five times within 10 minutes is disabled
+  and named in a notice.
+
+**Extensions are not sandboxed.** They run with your user's permissions;
+their declared capabilities limit what they reach through Roamgate's API, not
+what their code can do. Install only extensions you trust, and read
+[Security](SECURITY.md#extensions).
 
 ## Remote, Multi-Client, and Operations
 

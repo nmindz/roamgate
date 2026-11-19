@@ -1,12 +1,12 @@
-import { normalizeTitleSuffix } from "../../../shared/instanceName";
-import { defaultDataFile } from "./data-paths";
-import { roamgateEnv } from "./environment";
-import { dirname } from "node:path";
 import { mkdirSync } from "node:fs";
 import { rename, rm, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { normalizeTitleSuffix } from "../../../shared/instanceName";
 import { LEGACY_DEFAULT_CONNECTION_ID } from "../connections/types";
 import { serverLogger } from "../utils/logger";
 import { sourceCheckoutPath as workspaceSourceCheckoutPath } from "../workspace/utils";
+import { defaultDataFile } from "./data-paths";
+import { roamgateEnv } from "./environment";
 
 export type GuiRepoSettings = {
   worktree_hooks_enabled?: boolean;
@@ -62,6 +62,10 @@ export type GuiSettings = {
    * user carries the same interface across every browser they open.
    */
   ui: Record<string, unknown>;
+  /** Non-secret extension settings by extension id; secrets live beside each extension's data. */
+  extensions?: Record<string, Record<string, unknown>>;
+  /** Refuse extensions whose mod static analysis cannot read. */
+  extensions_strict_validation?: boolean;
 };
 
 /** Namespaces are addressed by RPC, so keep them to unmistakable identifiers. */
@@ -110,6 +114,7 @@ function defaultGuiSettings(): GuiSettings {
     terminal_transport: {},
     custom: {},
     ui: {},
+    extensions: {},
   };
 }
 
@@ -266,6 +271,21 @@ function normalizeGuiSettings(raw: unknown): GuiSettings {
             ),
           )
         : {},
+    extensions: Object.fromEntries(
+      Object.entries(
+        obj.extensions && typeof obj.extensions === "object"
+          ? (obj.extensions as Record<string, unknown>)
+          : {},
+      ).filter(
+        (entry): entry is [string, Record<string, unknown>] =>
+          !!entry[1] &&
+          typeof entry[1] === "object" &&
+          !Array.isArray(entry[1]),
+      ),
+    ),
+    ...(obj.extensions_strict_validation === true
+      ? { extensions_strict_validation: true }
+      : {}),
   };
 }
 

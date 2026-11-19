@@ -14,16 +14,16 @@ import type {
   AssistantAction,
   AssistantActionKind,
   AssistantConfig,
-  AssistantMessage,
   AssistantMention,
   AssistantMentionCatalog,
   AssistantMentionTarget,
+  AssistantMessage,
+  AssistantNotificationReceipt,
+  AssistantQueuedMessage,
   AssistantSessionSummary,
   AssistantSnapshot,
   AssistantTaskDetail,
   AssistantTaskNotification,
-  AssistantNotificationReceipt,
-  AssistantQueuedMessage,
   AssistantToolActivity,
   AssistantWorkspace,
   AssistantWorkspaceRef,
@@ -35,32 +35,34 @@ import {
   ASSISTANT_MAX_THINKING,
   ASSISTANT_MAX_THINKING_STEPS,
   ASSISTANT_MAX_WORKSPACES,
-  isAssistantModelApi,
-  isAssistantModelEndpoint,
   isAssistantMentions,
   isAssistantMentionTarget,
+  isAssistantModelApi,
+  isAssistantModelEndpoint,
   isAssistantQueue,
   isAssistantSnapshot,
   isAssistantThinkingLevel,
 } from "../../../shared/assistant";
 import { assertSafeDataPath, dataRoot } from "../config/data-paths";
 import { roamgateEnv } from "../config/environment";
+import { runWithOrigin } from "../extensions/action-events";
+import { rangerToolProvider } from "../extensions/ranger";
+import type { PreparedAssistantAction } from "./actions";
 import {
   type AssistantContext,
   AssistantRecoveryNotReadyError,
   type RecoveryTarget,
 } from "./context";
+import { AssistantUserError } from "./errors";
 import type { AssistantDriver } from "./pi-driver";
 import { createRangerDriver } from "./ranger-driver";
-import type { PreparedAssistantAction } from "./actions";
-import { AssistantUserError } from "./errors";
-import type { NotificationToolSender } from "./tools";
 import {
   createAssistantTasks,
   type PreparedTask,
   type SavedTaskRun,
   validateTaskInput,
 } from "./tasks";
+import type { NotificationToolSender } from "./tools";
 
 const DEFAULT_CONFIG: AssistantConfig = {
   provider: "",
@@ -1320,7 +1322,11 @@ export function createAssistantService(options: {
     authorized?: () => boolean,
   ) {
     try {
-      const result = await prepared.execute(authorized);
+      // Extension gates tell scheduled runs from chat turns by this origin.
+      const result = await runWithOrigin(
+        options.taskRun ? "task" : "ranger",
+        () => prepared.execute(authorized),
+      );
       action.status = result.status;
       action.detail = result.detail.slice(0, MAX_TEXT);
       if (result.created) await adoptWorkspace(action, result.created);
@@ -1896,6 +1902,11 @@ export function createAssistantService(options: {
     run = (async () => {
       try {
         if (controller.signal.aborted) return;
+        // Awaited only when an extension may expose tools.
+        const tools = rangerToolProvider();
+        const extensions = tools?.available()
+          ? await tools.list(controller.signal)
+          : [];
         assertTaskAllowed();
         assertScopeAllowed(captured);
         options.beforeTaskDispatch?.();
@@ -1905,6 +1916,7 @@ export function createAssistantService(options: {
             : { ...turnConfig, approval_mode: "manual" },
           entries,
           signal: controller.signal,
+          extensions,
           text: pending.text,
           requestId: pending.request_id,
           ...(pending.steers?.length

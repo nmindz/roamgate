@@ -36,8 +36,8 @@ import {
   type AssistantAction,
   type AssistantAuthState,
   type AssistantConfig,
-  type AssistantMessage,
   type AssistantMentionTarget,
+  type AssistantMessage,
   type AssistantModelConnection,
   type AssistantQueuedMessage,
   type AssistantSnapshot,
@@ -48,7 +48,6 @@ import {
   CLAUDE_CODE_PROVIDER,
 } from "../../../shared/assistant";
 import { bridge } from "../api";
-import type { RangerTaskNotificationTarget } from "../taskNotifications";
 import {
   assistantActionExecuting,
   assistantQueueSupported,
@@ -57,34 +56,35 @@ import {
   parseAssistantContext,
   permittedAssistantWorkspaces,
   pruneAssistantWorkspaceRefs,
-  reconcileAssistantConfig,
   readAssistantState,
+  reconcileAssistantConfig,
   refreshAssistant,
   sendAssistant,
   setAssistantDraft,
   useAssistantState,
 } from "../assistant";
-import { formatUiDateTime } from "../uiLocale";
-import { useStoreSelector } from "../store";
-import { useSystemBack } from "../systemBack";
-import { MarkdownPreview } from "./markdown";
-import { ConfirmDialog } from "./ModalDialogs";
-import { ThemedSelect } from "./ThemedSelect";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { AssistantChatControls } from "./AssistantChatControls";
+import { assistantMentionKey } from "../assistantMentions";
 import {
   sameAssistantSelection,
   thinkingForModel,
   thinkingLabels,
   thinkingOptions,
 } from "../assistantModels";
-import { AssistantTasks, TaskProposalCard } from "./AssistantTasks";
+import { detectShortcutPlatform } from "../shortcutBindings";
+import { useStoreSelector } from "../store";
+import { useSystemBack } from "../systemBack";
+import type { RangerTaskNotificationTarget } from "../taskNotifications";
+import { formatUiDateTime } from "../uiLocale";
+import { AssistantChatControls } from "./AssistantChatControls";
 import { AssistantMentionComposer } from "./AssistantMentionComposer";
+import { AssistantQueue } from "./AssistantQueue";
+import { AssistantTasks, TaskProposalCard } from "./AssistantTasks";
 import { AssistantThinking } from "./AssistantThinking";
 import { ConversationMinimap } from "./ConversationMinimap";
-import { AssistantQueue } from "./AssistantQueue";
-import { assistantMentionKey } from "../assistantMentions";
-import { detectShortcutPlatform } from "../shortcutBindings";
+import { ConfirmDialog } from "./ModalDialogs";
+import { MarkdownPreview } from "./markdown";
+import { ThemedSelect } from "./ThemedSelect";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import "./AssistantPanel.css";
 
 const altEnter =
@@ -574,6 +574,7 @@ const actionNames: Record<AssistantAction["kind"], string> = {
   close_workspace: "Close workspace",
   close_pane: "Close pane",
   close_agent: "Close agent",
+  extension_tool: "Run extension tool",
 };
 
 const actionStatuses: Record<AssistantAction["status"], string> = {

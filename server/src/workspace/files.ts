@@ -1,12 +1,18 @@
+import {
+  HTML_PREVIEW_MAX_BYTES,
+  isHtmlPath,
+} from "../../../shared/filePreview";
 import type { HerdrClient } from "../bridge/herdr-client";
 import { sshReadCommandArgv } from "../bridge/ssh-command";
-import { checkoutPath as getCheckoutPath } from "./utils";
+import { GIT_DIFF_TIMEOUT_MS } from "./file-constants";
+import { FileDownloadError } from "./file-download";
+import { canRevealFiles, revealLocalPath } from "./file-manager";
 import {
   downloadContentDisposition,
   inlineContentDisposition,
   sanitizeExplorerPath,
-  sanitizeMutationPath,
   sanitizeFilesystemPath,
+  sanitizeMutationPath,
   sanitizePreviewPath,
   sanitizeUploadFilename,
 } from "./file-paths";
@@ -15,51 +21,47 @@ import type {
   FileResolution,
   RunProcessWithCodeTimeout,
 } from "./file-types";
-import { FileDownloadError } from "./file-download";
+import { runGitFileAction, runGitRepoAction } from "./git-actions";
 import {
-  deleteLocalFile,
-  downloadLocalFile,
-  listLocalFiles,
-  readLocalFile,
-  resolveLocalFilePaths,
-  uploadLocalFile,
-  createLocalDirectory,
-  moveLocalFile,
-} from "./local-files";
-import {
-  deleteRemoteFile,
-  downloadRemoteFile,
-  listRemoteFiles,
-  readRemoteFile,
-  resolveRemoteFilePaths,
-  uploadRemoteFile,
-  mutateRemoteFile,
-} from "./remote-files";
-import {
+  type LastStepBaselineStore,
   pullGit,
   readDiffFile,
   readDiffSummary,
-  type LastStepBaselineStore,
 } from "./git-diff";
-import { runGitFileAction, runGitRepoAction } from "./git-actions";
 import {
   listCommits,
   readCommit,
   readCommitFile,
   readCommitPreview,
 } from "./git-history";
-import { readPullRequestStatus } from "./pull-request";
 import { collectIgnoredNames } from "./git-ignore";
-import { GIT_DIFF_TIMEOUT_MS } from "./file-constants";
-import { inlinePreviewMimeForPath } from "./preview";
-import { canRevealFiles, revealLocalPath } from "./file-manager";
-import {
-  HTML_PREVIEW_MAX_BYTES,
-  isHtmlPath,
-} from "../../../shared/filePreview";
-import { HtmlPreviewError, readHtmlPreviewFile } from "./html-preview-files";
 import { HTML_PREVIEW_CSP, renderHtmlPreview } from "./html-preview";
+import { HtmlPreviewError, readHtmlPreviewFile } from "./html-preview-files";
+import {
+  createLocalDirectory,
+  deleteLocalFile,
+  downloadLocalFile,
+  listLocalFiles,
+  moveLocalFile,
+  readLocalFile,
+  readLocalFileBytes,
+  resolveLocalFilePaths,
+  uploadLocalFile,
+} from "./local-files";
+import { inlinePreviewMimeForPath } from "./preview";
+import { readPullRequestStatus } from "./pull-request";
+import {
+  deleteRemoteFile,
+  downloadRemoteFile,
+  listRemoteFiles,
+  mutateRemoteFile,
+  readRemoteFile,
+  readRemoteFileBytes,
+  resolveRemoteFilePaths,
+  uploadRemoteFile,
+} from "./remote-files";
 import { searchWorkspaceFiles } from "./search";
+import { checkoutPath as getCheckoutPath } from "./utils";
 
 const MAX_FILE_RESOLUTION_CANDIDATES = 32;
 const MAX_FILE_RESOLUTION_PATH_LENGTH = 4096;
@@ -229,6 +231,29 @@ export function createFileHandlers({
       repo_name: workspace?.worktree?.repo_name ?? workspace?.label ?? "",
       checkout_path: checkoutPath,
     };
+  }
+
+  /** A checkout file's whole bytes, for extensions; workspace-relative only. */
+  async function readFileBytes(params: Record<string, unknown>, limit: number) {
+    const workspaceId = String(params.workspace_id ?? "");
+    if (!workspaceId) throw new Error("file.read requires workspace_id");
+    const path = sanitizeMutationPath(params.path);
+    if (!path) throw new Error("file.read requires path");
+    const workspace = await getWorkspace(workspaceId);
+    const checkoutPath = await explorerRoot(workspaceId, workspace);
+    if (!checkoutPath) throw new Error("workspace has no directory path");
+    const host = sshHost();
+    const read = host
+      ? await readRemoteFileBytes({
+          host,
+          rootPath: checkoutPath,
+          requestedPath: path,
+          limit,
+          runProcessWithCodeTimeout,
+          shQuote,
+        })
+      : await readLocalFileBytes(checkoutPath, path, limit);
+    return { workspace_id: workspaceId, checkout_path: checkoutPath, ...read };
   }
 
   async function searchFiles(params: Record<string, unknown>) {
@@ -450,10 +475,16 @@ export function createFileHandlers({
     });
   }
 
-  async function uploadFile(params: Record<string, unknown>, request: Request) {
+  /** The body (a request's, or bytes) is read only after the target checks. */
+  async function uploadFile(
+    params: Record<string, unknown>,
+    body: Request | Buffer,
+  ) {
     const { workspaceId, checkoutPath, directory, filename } =
       await uploadTarget(params);
-    const body = Buffer.from(await request.arrayBuffer());
+    const bytes = Buffer.isBuffer(body)
+      ? body
+      : Buffer.from(await body.arrayBuffer());
     const host = sshHost();
     const upload = host
       ? await uploadRemoteFile({
@@ -461,10 +492,10 @@ export function createFileHandlers({
           rootPath: checkoutPath,
           directory,
           filename,
-          body,
+          body: bytes,
           shQuote,
         })
-      : await uploadLocalFile(checkoutPath, directory, filename, body);
+      : await uploadLocalFile(checkoutPath, directory, filename, bytes);
     return {
       workspace_id: workspaceId,
       directory,
@@ -734,6 +765,7 @@ export function createFileHandlers({
     listWorkspaceFiles: listFiles,
     resolveWorkspaceFiles: resolveFiles,
     readWorkspaceFile: readFile,
+    readWorkspaceFileBytes: readFileBytes,
     searchWorkspaceFiles: searchFiles,
     revealWorkspaceFile: revealFile,
     downloadWorkspaceFile: downloadFile,

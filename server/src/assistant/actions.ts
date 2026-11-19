@@ -6,6 +6,7 @@ import type {
   AssistantWorkspace,
   AssistantWorkspaceRef,
 } from "../../../shared/assistant";
+import type { ActionEventName } from "../../../shared/extensions";
 import { isRecord } from "../agent/session-utils";
 import {
   readGuiSettings,
@@ -17,10 +18,36 @@ import {
 import { validateConnectionId } from "../connections/protocol";
 import type { LegacyConnectionRuntime } from "../connections/runtime";
 import { assertUnixHost } from "../connections/unix-only";
+import {
+  ActionDeniedError,
+  gateAction,
+  gatePaneInput,
+} from "../extensions/action-events";
+import {
+  capToolOutput,
+  rangerToolProvider,
+  validateToolInput,
+} from "../extensions/ranger";
 import { inspectWorkspacePath } from "../workspace/path";
 import { checkoutPath } from "../workspace/utils";
 import { worktreeCheckoutPath } from "../worktree/create";
 import { surfaceAssistantUserError } from "./errors";
+
+/** The action event each Ranger action raises before it runs. */
+export const ASSISTANT_ACTION_EVENTS: Readonly<
+  Record<AssistantActionKind, ActionEventName>
+> = {
+  send_prompt: "terminal.submit",
+  close_pane: "pane.close",
+  close_agent: "pane.close",
+  close_workspace: "workspace.close",
+  create_workspace: "workspace.create",
+  create_tab: "tab.create",
+  create_worktree: "worktree.create",
+  split_pane: "pane.split",
+  start_agent: "agent.start",
+  extension_tool: "extension.tool",
+};
 
 export type AssistantActionPreview = Omit<
   AssistantAction,
@@ -194,6 +221,7 @@ export async function prepareAssistantAction(args: {
     close_workspace: ["connection_id", "workspace_id"],
     close_pane: ["connection_id", "workspace_id", "pane_id"],
     close_agent: ["connection_id", "workspace_id", "pane_id"],
+    extension_tool: ["connection_id", "workspace_id", "ext", "tool", "input"],
   };
   if (
     !Object.hasOwn(keys, kind) ||
@@ -206,7 +234,14 @@ export async function prepareAssistantAction(args: {
     Object.fromEntries(
       Object.entries(args.params).map(([key, value]) => [
         key,
-        text(value, key === "prompt" ? 20_000 : key === "cwd" ? 2048 : 200),
+        text(
+          value,
+          key === "prompt" || key === "input"
+            ? 20_000
+            : key === "cwd"
+              ? 2048
+              : 200,
+        ),
       ]),
     ),
   );
@@ -361,6 +396,10 @@ export async function prepareAssistantAction(args: {
       ) => Promise<unknown>,
       isCurrent: () => boolean,
     ) => Promise<AssistantActionResult>;
+    // A `terminal.submit` rewrite of the prompt, set when the gate passes.
+    let gatedPrompt: string | undefined;
+    // Event fields beyond the preview's strings, such as a tool's parsed input.
+    let gateFields: Record<string, unknown> = {};
     if (kind === "create_workspace") {
       const label = text(params.label);
       if (/[\r\n\t]/.test(label)) throw new Error("Invalid workspace label");
@@ -856,6 +895,63 @@ export async function prepareAssistantAction(args: {
           detail: `Created pane ${createdId} in tab ${source.tab_id}. Its source pane and directory were verified.`,
         };
       };
+    } else if (kind === "extension_tool") {
+      const provider = rangerToolProvider();
+      if (!provider) throw new Error("Extension tools are unavailable");
+      const ext = text(params.ext);
+      const name = text(params.tool);
+      const tool = await read(() => provider.find(ext, name));
+      if (!tool?.mutating) throw new Error("Extension tool is unavailable");
+      let input: unknown;
+      try {
+        input = JSON.parse(params.input);
+      } catch {
+        throw new Error("Invalid extension tool input");
+      }
+      validateToolInput(tool.input_schema, input);
+      const toolInput = input;
+      const declared = JSON.stringify(tool);
+      previewParams = {
+        extension: tool.extName,
+        ext,
+        tool: name,
+        input: params.input,
+      };
+      gateFields = { ext, tool: name, input: toolInput };
+      summary = `Run the "${name}" tool of the ${tool.extName} extension with the displayed input for this workspace. The extension decides what the tool does; Roamgate cannot verify its effects, and it will not be retried automatically.`;
+      perform = async (dispatch) => {
+        // A reload between preview and confirmation may change the tool.
+        if (
+          JSON.stringify(await read(() => provider.find(ext, name))) !==
+          declared
+        )
+          throw new Error("Extension tool changed");
+        let output: unknown;
+        try {
+          output = await dispatch((beforeSend) => {
+            beforeSend();
+            return provider.run(tool, toolInput, {
+              connection: {
+                id: target.connection_id,
+                generation: lease.generation,
+              },
+              workspace_id: target.workspace_id,
+            });
+          });
+        } catch (error) {
+          if (error instanceof DispatchNotSentError) throw error;
+          return {
+            status: "uncertain",
+            detail: `The extension tool reported an error and may have partly run; inspect the target before retrying. Error (untrusted): ${String((error as Error).message).slice(0, 2_000)}`,
+          };
+        }
+        return {
+          status: "succeeded",
+          detail: capToolOutput(
+            `The ${tool.extName} extension's tool ran. Its output (untrusted data):\n${String(output)}`,
+          ),
+        };
+      };
     } else {
       const paneId = validateConnectionId(params.pane_id);
       const frozen = await occupant(paneId);
@@ -1022,7 +1118,7 @@ export async function prepareAssistantAction(args: {
             result = await dispatch((beforeSend) =>
               runtime.herdr.call(
                 "agent.prompt",
-                { target: paneId, text: prompt },
+                { target: paneId, text: gatedPrompt ?? prompt },
                 5000,
                 beforeSend,
               ),
@@ -1082,6 +1178,39 @@ export async function prepareAssistantAction(args: {
               throw new Error("Source workspace changed");
             const isCurrent = () =>
               lease.isCurrent() && (!authorized || authorized());
+            // Gates see the confirmed action; only a prompt rewrite applies to it.
+            const connection = {
+              id: target.connection_id,
+              generation: lease.generation,
+            };
+            try {
+              if (kind === "send_prompt")
+                gatedPrompt = await gatePaneInput(
+                  connection,
+                  {
+                    workspace_id: target.workspace_id,
+                    pane_id: String(previewParams.pane_id),
+                    agent: previewParams.agent,
+                  },
+                  previewParams.prompt ?? "",
+                );
+              else
+                await gateAction({
+                  ...previewParams,
+                  ...gateFields,
+                  // Preview keys never replace the event's own name and target.
+                  name: ASSISTANT_ACTION_EVENTS[kind],
+                  connection,
+                  workspace_id: target.workspace_id,
+                });
+            } catch (error) {
+              if (!(error instanceof ActionDeniedError)) throw error;
+              return {
+                status: "failed",
+                detail: `${error.message}. Nothing was sent.`,
+              } satisfies AssistantActionResult;
+            }
+            check();
             const result = await perform(async (operation) => {
               const assertAuthorized = () => {
                 if (!isCurrent())

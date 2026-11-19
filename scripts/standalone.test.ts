@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { chmod, mkdtemp, mkdir, rename, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rename, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import serverPackage from "../server/package.json";
 import rootPackage from "../package.json";
+import serverPackage from "../server/package.json";
 
 async function run(argv: string[], cwd: string, env = process.env) {
   const child = Bun.spawn(argv, {
@@ -214,6 +214,27 @@ test(
 
 test("standalone OAuth keeps the SDK undici override aligned with the server", () => {
   expect(rootPackage.overrides.undici).toBe(serverPackage.dependencies.undici);
+});
+
+test("compile scripts keep external code loading: never --aot or --trim", async () => {
+  // Extensions import mods at runtime and run `roamgate:bun` hooks through
+  // BUN_BE_BUN; --aot refuses code from disk and --trim drops the Bun CLI.
+  const scripts = [
+    ...Object.entries(rootPackage.scripts),
+    ...Object.entries(serverPackage.scripts),
+  ];
+  const compiles = scripts.filter(([, script]) => script.includes("--compile"));
+  expect(compiles.length).toBeGreaterThan(0);
+  for (const [name, script] of compiles) {
+    expect(script, name).not.toMatch(/--aot\b|--trim\b/);
+    // Without splitting, every extension child parses the whole bridge bundle.
+    if (name.startsWith("compile"))
+      expect(script, name).toContain("--splitting");
+  }
+  const release = await Bun.file(
+    new URL("package-release.sh", import.meta.url),
+  ).text();
+  expect(release).not.toMatch(/--aot\b|--trim\b/);
 });
 
 test("standalone Ranger emits Kimi device codes and saves OAuth credentials in either store", async () => {

@@ -44,9 +44,12 @@ import {
   closeResourceFileTab,
   type InspectorDock,
   type InspectorSplitView,
+  type BuiltinInspectorView,
   type InspectorView,
+  isExtensionView,
   type WorkspaceInspectorState,
 } from "../workspaceResource";
+import { ExtensionSlot, useExtensionsGate } from "../extensionsBootstrap";
 import { AgentHistoryDrawer } from "./AgentHistoryDrawer";
 import { paneHasAgentHistory } from "./agentSession";
 import {
@@ -207,7 +210,7 @@ export function WorkspaceInspectorHost({
     entries: GitDiffEntry[];
   }>(() => ({ resourceKey: "", entries: [] }));
   const [drillInByView, setDrillInByView] = useState<
-    Record<InspectorView, boolean>
+    Record<BuiltinInspectorView, boolean>
   >(() => ({
     files:
       state.view === "files" &&
@@ -304,7 +307,10 @@ export function WorkspaceInspectorHost({
       : state.view === "changes"
         ? !!diffSelection.entry
         : false;
-  const hasDetail = detailAvailable && drillInByView[state.view];
+  const hasDetail =
+    detailAvailable &&
+    !isExtensionView(state.view) &&
+    drillInByView[state.view];
   const fileChangesEntries = fileSelection.entry
     ? fileDiffEntries.filter(
         (entry) => entry.path === fileSelection.entry?.path,
@@ -346,11 +352,14 @@ export function WorkspaceInspectorHost({
       }
       return;
     }
-    const views: InspectorView[] = historyAvailable
+    const views: BuiltinInspectorView[] = historyAvailable
       ? ["files", "changes", "commits", "history"]
       : ["files", "changes", "commits"];
-    const currentIndex = Math.max(0, views.indexOf(state.view));
-    const nextView: InspectorView | undefined =
+    const currentIndex = Math.max(
+      0,
+      (views as readonly string[]).indexOf(state.view),
+    );
+    const nextView: BuiltinInspectorView | undefined =
       event.key === "Home"
         ? views[0]
         : event.key === "End"
@@ -371,6 +380,15 @@ export function WorkspaceInspectorHost({
     };
     refs[nextView].current?.focus();
   };
+
+  // The slot renders nothing once no extension is enabled, so a saved or open
+  // `ext:` view would show a blank panel; fall back to Files.
+  const extensionsOpen = useExtensionsGate();
+  const extensionViewMissing =
+    isExtensionView(state.view) && extensionsOpen === false;
+  useEffect(() => {
+    if (extensionViewMissing) onViewChange("files");
+  }, [extensionViewMissing, onViewChange]);
 
   useEffect(() => {
     const refresh = () =>
@@ -484,6 +502,13 @@ export function WorkspaceInspectorHost({
           >
             <History size={14} /> History
           </button>
+          <ExtensionSlot
+            slot="inspector.tabs"
+            view={state.view}
+            workspace={workspace}
+            pane={historyPane}
+            onSelect={(view) => onViewChange(view as InspectorView)}
+          />
         </div>
         <div className="workspace-inspector-actions">
           <button
@@ -874,6 +899,17 @@ export function WorkspaceInspectorHost({
               </div>
             )}
           </div>
+          {isExtensionView(state.view) ? (
+            <div className="workspace-inspector-resource inspector-ext-resource">
+              <ExtensionSlot
+                slot="inspector.panel"
+                view={state.view}
+                workspace={workspace}
+                pane={historyPane}
+                onMissing={() => onViewChange("files")}
+              />
+            </div>
+          ) : null}
         </div>
       )}
     </aside>

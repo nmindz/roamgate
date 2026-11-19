@@ -28,6 +28,7 @@ import {
   UI_SCALE_STEP,
 } from "../appearance";
 import { lazyWithReload } from "../lazyWithReload";
+import { ExtensionSlot } from "../extensionsBootstrap";
 import { setDefaultPaneView, useDefaultPaneView } from "../paneView";
 import { setComposerVimKeys, useComposerVimKeys } from "../composerVim";
 import {
@@ -82,6 +83,11 @@ const MobileTerminalShortcutsDialog = lazyWithReload("mobile-shortcuts", () =>
     default: module.MobileTerminalShortcutsDialog,
   })),
 );
+const ExtensionsSettings = lazyWithReload("extensions", () =>
+  import("../extensions").then((module) => ({
+    default: module.ExtensionsSettings,
+  })),
+);
 
 export type ConfigurationProps = {
   theme: Theme;
@@ -113,6 +119,7 @@ const tabs = [
   "Instance",
   "Connection",
   "Integrations",
+  "Extensions",
 ] as const;
 export type ConfigurationTab = (typeof tabs)[number];
 type Detail = "terminal" | "layout" | "keyboard" | "mobile" | "sync";
@@ -393,6 +400,7 @@ export function ConfigurationDialog({
                   ))}
                 </div>
               </div>
+              <ExtensionSlot slot="appearance" />
               <div className="config-preference-row">
                 <span className="config-item-icon">
                   <ALargeSmall size={15} />
@@ -760,6 +768,18 @@ export function ConfigurationDialog({
                 </>
               ) : null}
             </section>
+            <section
+              role="tabpanel"
+              id="configuration-panel-Extensions"
+              aria-labelledby="configuration-tab-Extensions"
+              hidden={tab !== "Extensions"}
+            >
+              {tab === "Extensions" ? (
+                <Suspense fallback={<p className="muted">Loading...</p>}>
+                  <ExtensionsSettings />
+                </Suspense>
+              ) : null}
+            </section>
           </div>
           <div className="modal-actions">
             <span className="muted">
@@ -767,7 +787,9 @@ export function ConfigurationDialog({
                 ? "Changes require confirmation."
                 : tab === "Instance"
                   ? "Use Save to apply instance settings."
-                  : "Changes are saved automatically."}
+                  : tab === "Extensions"
+                    ? "Installing and enabling ask for confirmation."
+                    : "Changes are saved automatically."}
             </span>
             <button type="button" onClick={onClose}>
               Done

@@ -42,6 +42,7 @@ import {
   filterComposerCommands,
   terminalComposerCommands,
 } from "../terminalComposerCommands";
+import { ExtensionSlot } from "../extensionsBootstrap";
 import {
   filesFromTerminalDrop,
   isNativeFileDrag,
@@ -192,7 +193,13 @@ export function TerminalComposer({
     command: ComposerCommand;
     draft: string;
   } | null>(null);
-  const commands = terminalComposerCommands(agent);
+  const [extensionCommands, setExtensionCommands] = useState<ComposerCommand[]>(
+    [],
+  );
+  const builtinCommands = terminalComposerCommands(agent);
+  const commands = extensionCommands.length
+    ? [...builtinCommands, ...extensionCommands]
+    : builtinCommands;
   const pickerId = useId();
   const commandListRef = useRef<HTMLDivElement | null>(null);
   const commandPickerRef = useRef<HTMLElement | null>(null);
@@ -586,9 +593,9 @@ export function TerminalComposer({
             textarea?.selectionEnd ?? 0,
           )
         : {
-            text: `${command.name} `,
-            start: command.name.length + 1,
-            end: command.name.length + 1,
+            text: `${command.expand ?? command.name} `,
+            start: (command.expand ?? command.name).length + 1,
+            end: (command.expand ?? command.name).length + 1,
           };
     if (!next) return;
     writeTerminalComposerDraft(draftKey, next.text);
@@ -657,6 +664,14 @@ export function TerminalComposer({
 
   return (
     <>
+      <ExtensionSlot
+        slot="composer.command"
+        paneId={paneId}
+        workspaceId={workspaceId}
+        tabId={tabId}
+        agent={agent}
+        onItems={setExtensionCommands}
+      />
       <div
         ref={composerRef}
         className="terminal-composer"

@@ -2,6 +2,8 @@ export type ComposerCommand = {
   name: string;
   description: string;
   arguments?: string;
+  /** Text that replaces the typed command instead of its name. */
+  expand?: string;
 };
 
 // Built-in input-assistance catalogs, not live capability lists or validators.
@@ -552,13 +554,14 @@ export function completeComposerCommand(
   const token = /^\/[^\s]*/.exec(text)?.[0];
   if (!token) return null;
   const suffix = text.slice(token.length);
-  const next = command.name + (suffix || " ");
+  const inserted = command.expand ?? command.name;
+  const next = inserted + (suffix || " ");
   const position = (offset: number) =>
     Math.min(
       next.length,
       offset > token.length
-        ? offset + command.name.length - token.length
-        : command.name.length + (suffix ? 0 : 1),
+        ? offset + inserted.length - token.length
+        : inserted.length + (suffix ? 0 : 1),
     );
   return { text: next, start: position(start), end: position(end) };
 }

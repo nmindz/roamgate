@@ -55,7 +55,11 @@ export function validateConnectionGeneration(value: unknown): number {
 }
 
 export function isBridgeGlobalMethod(method: string): boolean {
-  return method.startsWith("bridge.") || method.startsWith("connections.");
+  return (
+    method.startsWith("bridge.") ||
+    method.startsWith("connections.") ||
+    method.startsWith("ext.")
+  );
 }
 
 export function resolveReadyConnection<Runtime>(
@@ -197,6 +201,7 @@ const HERDR_EVENT_RESERVED_FIELDS = [
   "terminal",
   "terminal_clipboard",
   "assistant",
+  "extensions",
 ] as const;
 
 export function serializeHerdrEventEnvelope(

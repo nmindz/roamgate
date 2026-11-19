@@ -51,13 +51,20 @@ export default defineConfig({
               // Keep small startup preferences and UI helpers together
               // instead of adding utility-only requests.
               name: "browser-preferences",
-              test: /src[\\/](?:browserStorage|layoutPreferences|shortcutPreferences|speechPreferences|uiLocale|luckyName|systemBack)\.ts$/,
+              test: /src[\\/](?:browserStorage|layoutPreferences|shortcutPreferences|speechPreferences|uiLocale|luckyName|systemBack|lazyWithReload)\.ts$/,
             },
             {
               // Keep startup UI primitives together without loading feature-only icons.
               name: "ui-runtime",
               test: /(?:vite[\\/]preload-helper\.js|node_modules[\\/](?:lucide-react|react|react-dom|scheduler|@radix-ui|@floating-ui)[\\/]|src[\\/](?:utils\.ts|components[\\/](?:(?:dialogFocus|contextMenuPosition)\.ts|(?:ui[\\/](?:popover|command)|CloseButton|ModalDialogs|ThemedSelect)\.tsx))$)/,
               tags: ["$initial"],
+            },
+            {
+              // Another importer of markdown.tsx otherwise splits it from its
+              // minimap sibling and costs an asset file; keep its dependencies out.
+              name: "markdown",
+              test: /src[\\/](?:components[\\/](?:markdown|ConversationMinimap)\.tsx|workspaceFileUrl\.ts)$|node_modules[\\/]marked[\\/]/,
+              includeDependenciesRecursively: false,
             },
             {
               // Feature-only icons and name dictionaries share one lazy asset.

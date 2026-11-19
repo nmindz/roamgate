@@ -4,13 +4,14 @@ import {
   runServiceCommand,
   SERVICE_COMMAND_CONTINUE,
 } from "../config/service-manager";
+import { runExtensionHost } from "../extensions/sdk/runtime";
 import { runHerdrCommand } from "../herdr/cli";
 import { authCommand } from "./auth";
 import {
   type CliCommand,
   type CliContext,
-  type CommandResult,
   CONTINUE_TO_SERVER,
+  type CommandResult,
   EXIT_FAILURE,
   EXIT_OK,
   EXIT_USAGE,
@@ -21,6 +22,7 @@ import { createCompletionCommand } from "./completion";
 import { configCommand } from "./config";
 import { createConnectionsCommand } from "./connections";
 import { createDoctorCommand } from "./doctor";
+import { createExtCommand } from "./ext";
 import { createPushCommand } from "./push";
 import { serviceRuntime } from "./service-context";
 import { runServiceLogs } from "./service-logs";
@@ -95,6 +97,7 @@ export function cliCommands(): CliCommand[] {
     serviceCommand,
     herdrCommand,
     createDoctorCommand(),
+    createExtCommand(),
     urlCommand,
     configCommand,
     authCommand,
@@ -137,6 +140,8 @@ export async function runCli(
 ): Promise<CommandResult | null> {
   const first = argv[0];
   if (first === undefined || first.startsWith("-")) return null;
+  // Hidden: the extension child the bridge spawns from this same binary.
+  if (first === "__ext-host") return runExtensionHost(argv.slice(1));
   if (first === "help") {
     const topic = argv[1];
     if (topic === undefined) {
@@ -153,7 +158,8 @@ export async function runCli(
     context.log(command.help());
     return EXIT_OK;
   }
-  const command = commands.find((entry) => entry.name === first);
+  const name = first === "extension" ? "ext" : first;
+  const command = commands.find((entry) => entry.name === name);
   if (!command) {
     context.error(`roamgate: unknown command: ${first}`);
     context.error("Run `roamgate --help` for the list of commands.");

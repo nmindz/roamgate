@@ -172,7 +172,8 @@ export type AssistantActionKind =
   | "send_prompt"
   | "close_workspace"
   | "close_pane"
-  | "close_agent";
+  | "close_agent"
+  | "extension_tool";
 
 export type AssistantAction = Omit<AssistantWorkspace, "label"> & {
   workspace_label: string;
@@ -712,6 +713,7 @@ function action(value: unknown): value is AssistantAction {
       "close_workspace",
       "close_pane",
       "close_agent",
+      "extension_tool",
     ].includes(String(value.kind)) &&
     text(value.status) &&
     [

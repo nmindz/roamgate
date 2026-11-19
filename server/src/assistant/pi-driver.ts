@@ -1,7 +1,12 @@
+import { randomUUID } from "node:crypto";
+import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { pathToFileURL } from "node:url";
 import {
   ASSISTANT_MAX_TOOL_ARGUMENTS,
-  ASSISTANT_MAX_TOOL_OUTPUT,
   ASSISTANT_MAX_TOOL_DETAILS,
+  ASSISTANT_MAX_TOOL_OUTPUT,
   ASSISTANT_THINKING_LEVELS,
   type AssistantConfig,
   type AssistantMessage,
@@ -12,13 +17,15 @@ import {
   isAssistantModelApi,
   isAssistantModelEndpoint,
 } from "../../../shared/assistant";
-import { randomUUID } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { pathToFileURL } from "node:url";
 import { isRecord } from "../agent/session-utils";
 import { assertSafeDataPath } from "../config/data-paths";
+import type { ExtensionTool } from "../extensions/ranger";
+import { AssistantUserError, surfaceAssistantUserError } from "./errors";
+import {
+  LEGACY_AZURE_PROVIDER,
+  registerLegacyAzureProvider,
+} from "./pi-azure-compat";
+import { rangerSystemPrompt, rangerTools } from "./ranger-tools";
 import type {
   ActionToolProposer,
   NotificationToolSender,
@@ -26,12 +33,6 @@ import type {
   TaskToolHandler,
   WorkspaceToolReader,
 } from "./tools";
-import { rangerSystemPrompt, rangerTools } from "./ranger-tools";
-import { AssistantUserError, surfaceAssistantUserError } from "./errors";
-import {
-  LEGACY_AZURE_PROVIDER,
-  registerLegacyAzureProvider,
-} from "./pi-azure-compat";
 
 type AuthPrompt = {
   type: "text" | "secret" | "select" | "manual_code";
@@ -113,6 +114,8 @@ export type AssistantDriver = {
     notify?: NotificationToolSender;
     /** Shows a workspace in the asking browser; absent without one. */
     show?: ShowToolHandler;
+    /** Tools of extensions with the `ranger` capability, listed for this turn. */
+    extensions?: readonly ExtensionTool[];
     delta(text: string): void;
     message(text: string): void;
     tool(

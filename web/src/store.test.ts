@@ -1468,7 +1468,7 @@ describe("workspace source navigation", () => {
   });
 });
 
-describe("plugin popup toggle", () => {
+describe("Herdr plugin action invocation", () => {
   test("focuses the target Space even when this browser already shows it", async () => {
     const previousState = store.get();
     const originalConnection = bridge.connection;
@@ -1490,7 +1490,7 @@ describe("plugin popup toggle", () => {
       // projects it, but Herdr's own focus may sit on another Space.
       __storeTesting.replaceState(partitionState());
       expect(store.get().workspaces[0]?.focused).toBe(true);
-      await store.togglePluginPopup("float", "toggle", {
+      await store.invokeHerdrPluginAction("float", "toggle", {
         workspace_id: "same-workspace",
       });
       expect(methods.slice(0, 3)).toEqual([

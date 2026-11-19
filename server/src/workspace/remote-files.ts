@@ -3,12 +3,8 @@ import {
   AUDIO_MIME_TYPES,
   IMAGE_MIME_TYPES,
 } from "../../../shared/filePreview";
-import {
-  FileDownloadError,
-  fileDownloadRange,
-  type FileDownloadOptions,
-} from "./file-download";
 import { sshCommandArgv, sshReadCommandArgv } from "../bridge/ssh-command";
+import { REMOTE_EXCLUSIVE_RENAME } from "./atomic-file-move";
 import {
   DELETE_TIMEOUT_MS,
   DOWNLOAD_TIMEOUT_MS,
@@ -19,6 +15,11 @@ import {
   PREVIEW_TIMEOUT_MS,
   UPLOAD_TIMEOUT_MS,
 } from "./file-constants";
+import {
+  FileDownloadError,
+  type FileDownloadOptions,
+  fileDownloadRange,
+} from "./file-download";
 import { entrySort, relativeExplorerPath } from "./file-paths";
 import type {
   FileDeleteResult,
@@ -29,9 +30,8 @@ import type {
   FileUploadResult,
   RunProcessWithCodeTimeout,
 } from "./file-types";
-import { runProcessWithInputTimeout } from "./process";
 import { decodePreviewBuffer, previewLimitForPath } from "./preview";
-import { REMOTE_EXCLUSIVE_RENAME } from "./atomic-file-move";
+import { runProcessWithInputTimeout } from "./process";
 
 export function parseRemoteFileList(
   stdout: string,
@@ -192,10 +192,8 @@ done
   return parseRemoteFileResolutions(result.stdout);
 }
 
-export function parseRemoteFilePreview(
-  stdout: string,
-  requestedPath: string,
-): FilePreviewResult {
+/** The META line of a remote read and the bytes after it. */
+function parseRemoteFileRead(stdout: string, requestedPath: string) {
   const lines = stdout.split(/\r?\n/);
   const meta = lines.shift() ?? "";
   const [kind, rawRoot, rawSize, rawMtime, rawRelative, rawType] =
@@ -205,59 +203,80 @@ export function parseRemoteFilePreview(
       (stdout || "invalid file preview response").trim().slice(0, 1000),
     );
   }
-  const root = Buffer.from(rawRoot ?? "", "base64").toString("utf8");
-  const relativePath = rawRelative
-    ? Buffer.from(rawRelative, "base64").toString("utf8")
-    : requestedPath.replace(/^\/+/, "");
-  if (rawType === "directory") {
+  const raw = Buffer.from(lines.join(""), "base64");
+  return {
+    root: Buffer.from(rawRoot ?? "", "base64").toString("utf8"),
+    path: rawRelative
+      ? Buffer.from(rawRelative, "base64").toString("utf8")
+      : requestedPath.replace(/^\/+/, ""),
+    directory: rawType === "directory",
+    size: Number(rawSize) || raw.length,
+    mtime_ms: (Number(rawMtime) || 0) * 1000,
+    raw,
+  };
+}
+
+export function parseRemoteFilePreview(
+  stdout: string,
+  requestedPath: string,
+): FilePreviewResult {
+  const { root, path, directory, size, mtime_ms, raw } = parseRemoteFileRead(
+    stdout,
+    requestedPath,
+  );
+  if (directory) {
     return {
       root,
-      path: relativePath,
+      path,
       type: "directory",
       size: 0,
-      mtime_ms: (Number(rawMtime) || 0) * 1000,
+      mtime_ms,
       truncated: false,
       text: null,
       binary: false,
     };
   }
-  const base64 = lines.join("");
-  const raw = Buffer.from(base64, "base64");
-  const size = Number(rawSize) || raw.length;
-  const previewLimit = previewLimitForPath(relativePath, size);
+  const previewLimit = previewLimitForPath(path, size);
   const truncated =
     size > previewLimit || raw.length > previewLimit || raw.length < size;
   const bytes = truncated ? raw.subarray(0, previewLimit) : raw;
-  const decoded = decodePreviewBuffer(bytes, truncated, relativePath);
+  const decoded = decodePreviewBuffer(bytes, truncated, path);
   return {
     root,
-    path: relativePath,
+    path,
     size,
-    mtime_ms: (Number(rawMtime) || 0) * 1000,
+    mtime_ms,
     truncated,
     ...decoded,
   };
 }
 
-export async function readRemoteFile({
-  host,
-  rootPath,
-  requestedPath,
-  runProcessWithCodeTimeout,
-  shQuote,
-}: {
+type RemoteReadArgs = {
   host: string;
   rootPath: string;
   requestedPath: string;
   runProcessWithCodeTimeout: RunProcessWithCodeTimeout;
   shQuote: (value: string) => string;
-}) {
+};
+
+/** Reads at most `limit + 1` bytes; images up to `imageLimit` use that instead. */
+async function runRemoteRead(
+  {
+    host,
+    rootPath,
+    requestedPath,
+    runProcessWithCodeTimeout,
+    shQuote,
+  }: RemoteReadArgs,
+  textLimit: number,
+  imageLimit: number,
+) {
   const command = `
 set -eu
 root=${shQuote(rootPath)}
 request=${shQuote(requestedPath)}
-text_limit=${PREVIEW_MAX_BYTES}
-image_limit=${PREVIEW_IMAGE_MAX_BYTES}
+text_limit=${textLimit}
+image_limit=${imageLimit}
 root_real="$(cd "$root" && pwd -P)"
 case "$request" in
   /*) target="$request"; requested_absolute=1 ;;
@@ -304,7 +323,31 @@ printf '\\n'
         .slice(0, 1000),
     );
   }
-  return parseRemoteFilePreview(result.stdout, requestedPath);
+  return result.stdout;
+}
+
+export async function readRemoteFile(args: RemoteReadArgs) {
+  return parseRemoteFilePreview(
+    await runRemoteRead(args, PREVIEW_MAX_BYTES, PREVIEW_IMAGE_MAX_BYTES),
+    args.requestedPath,
+  );
+}
+
+/** A checkout file's whole bytes, refused over `limit`; relative paths only. */
+export async function readRemoteFileBytes(
+  args: RemoteReadArgs & { limit: number },
+) {
+  if (args.requestedPath.startsWith("/"))
+    throw new Error("file reads require a workspace-relative path");
+  const { path, directory, size, raw } = parseRemoteFileRead(
+    await runRemoteRead(args, args.limit, args.limit),
+    args.requestedPath,
+  );
+  if (directory) throw new Error("only regular files can be read");
+  if (size > args.limit || raw.length > args.limit)
+    throw new Error(`file is over ${args.limit} bytes`);
+  if (raw.length !== size) throw new Error("file changed while reading");
+  return { path, size, bytes: raw };
 }
 
 export function parseRemoteFileDownload(stdout: string, requestedPath: string) {

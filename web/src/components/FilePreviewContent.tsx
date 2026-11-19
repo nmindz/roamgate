@@ -44,6 +44,7 @@ import {
 import { MermaidDiagram } from "./MermaidDiagram";
 import { ImagePreview } from "./ImagePreview";
 import { lazyWithReload } from "../lazyWithReload";
+import { useExtensionContributions } from "../extensionsBootstrap";
 import {
   handlePreviewEditorCopy,
   isEditablePreviewTarget,
@@ -164,6 +165,9 @@ function isMermaidPath(path: string) {
 
 // PDF.js only loads when a PDF is shown by it.
 const PdfPages = lazyWithReload("pdf-pages", () => import("./PdfPages"));
+const ExtensionPreview = lazyWithReload("extensions", () =>
+  import("../extensions").then((module) => ({ default: module.PreviewFrame })),
+);
 
 /**
  * Whether the browser shows a PDF in a frame itself. Chrome on Android and
@@ -307,8 +311,22 @@ export function FilePreviewContent({
   const htmlTooLarge =
     hasHtmlPreview &&
     ((preview?.size ?? 0) > HTML_PREVIEW_MAX_BYTES || !!preview?.truncated);
+  // A frame an extension declared renders the file; its text goes through
+  // the frame bridge, never a URL that carries this session.
+  const previewers = useExtensionContributions().previewers;
+  const extensionPreviewer =
+    hasPreviewText && !preview?.binary && preview?.type !== "directory"
+      ? previewers.find((item) =>
+          item.extensions.some((suffix) =>
+            previewPath.toLowerCase().endsWith(suffix),
+          ),
+        )
+      : undefined;
   const hasRichPreview =
-    hasMarkdownPreview || hasMermaidPreview || hasHtmlPreview;
+    hasMarkdownPreview ||
+    hasMermaidPreview ||
+    hasHtmlPreview ||
+    !!extensionPreviewer;
   const renderRichPreview = hasRichPreview && previewMode === "rendered";
   const inlinePreviewUrl = useMemo(() => {
     if (!preview?.workspace_id || !previewPath) return null;
@@ -797,6 +815,19 @@ export function FilePreviewContent({
               code={previewText}
               className="file-preview-mermaid"
             />
+          ) : null}
+          {!loading && !error && extensionPreviewer && renderRichPreview ? (
+            <Suspense fallback={null}>
+              <ExtensionPreview
+                key={previewPath}
+                ext={extensionPreviewer.ext}
+                frame={extensionPreviewer.frame}
+                path={previewPath}
+                name={entry?.name ?? previewPath}
+                content={previewText ?? ""}
+                truncated={!!preview?.truncated}
+              />
+            </Suspense>
           ) : null}
           {!loading &&
           !error &&

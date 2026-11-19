@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ILink, ILinkProvider, Terminal } from "@xterm/xterm";
+import { setExtensionContributions } from "./extensionsBootstrap";
 import { registerTerminalLinkProvider } from "./terminalLinkProvider";
 import { TerminalFileResolutionCache } from "./terminalFileLinks";
 import {
@@ -1018,5 +1019,65 @@ describe("http links offered to a handler", () => {
         throw new Error("handler exploded");
       }),
     ).toEqual(["http://localhost:5173/"]);
+  });
+});
+
+describe("extension link patterns", () => {
+  const pattern = (source: string, url: string) => ({
+    ext: "acme.tracker",
+    regex: new RegExp(source, "g"),
+    url,
+  });
+
+  test("turn matches into links at the matched columns", async () => {
+    setExtensionContributions({
+      linkPatterns: [
+        pattern("PROJ-(\\d+)", "https://tracker.example/browse/PROJ-{1}"),
+      ],
+    });
+    try {
+      const f = fixture(["fix PROJ-12 and PROJ-345 now"], 40);
+      registerTerminalLinkProvider(f.term);
+      const links = await f.links(1);
+      expect(links.map((link) => link.text)).toEqual(["PROJ-12", "PROJ-345"]);
+      expect(links[0]!.range).toEqual({
+        start: { x: 5, y: 1 },
+        end: { x: 11, y: 1 },
+      });
+    } finally {
+      setExtensionContributions({ linkPatterns: [] });
+    }
+  });
+
+  test("never override a real URL and refuse non-http targets", async () => {
+    setExtensionContributions({
+      linkPatterns: [
+        pattern("PROJ-\\d+", "https://tracker.example/{0}"),
+        pattern("BAD-\\d+", "javascript:alert({0})"),
+      ],
+    });
+    try {
+      const f = fixture(["https://x.example/PROJ-9 PROJ-10 BAD-1"], 50);
+      registerTerminalLinkProvider(f.term);
+      expect((await f.links(1)).map((link) => link.text)).toEqual([
+        "https://x.example/PROJ-9",
+        "PROJ-10",
+      ]);
+    } finally {
+      setExtensionContributions({ linkPatterns: [] });
+    }
+  });
+
+  test("an empty-matching pattern cannot loop", async () => {
+    setExtensionContributions({
+      linkPatterns: [pattern("x*", "https://e.example/{0}")],
+    });
+    try {
+      const f = fixture(["abc xx"], 20);
+      registerTerminalLinkProvider(f.term);
+      expect((await f.links(1)).map((link) => link.text)).toEqual(["xx"]);
+    } finally {
+      setExtensionContributions({ linkPatterns: [] });
+    }
   });
 });

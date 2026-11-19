@@ -315,8 +315,12 @@ state; sends are never replayed.
   afresh, and input sent during a Claude Code turn waits as a follow-up.
 - **Tools** are defined in `server/src/assistant/tools.ts` and run through
   `callWorkspaceTool` against the turn's approved scope. Pi's built-in tools,
-  extensions, skills, and project instructions are disabled, and workspace
-  evidence is treated as untrusted.
+  Pi extensions, skills, and project instructions are disabled, and workspace
+  evidence is treated as untrusted. Roamgate extensions with the `ranger`
+  capability add tools (`ext_<id>__<name>`), listed once per extension
+  version; read-only ones run during the turn with output capped at 64 KiB
+  and marked untrusted, and mutating ones become `extension_tool` actions that
+  raise the `extension.tool` gate (see [Extensions](#extensions)).
 - **Scope:** no workspaces are allowed by default. Each turn captures concrete
   connection/workspace pairs (at most 512) and rechecks runtime leases around
   every read. Only the dedicated confirmation can enable high-permission mode
@@ -441,6 +445,78 @@ the previous status like any transport failure, and the next round asks again.
 At startup, orphaned command masters are stopped only in private, user-owned
 runtime directories whose recorded Roamgate owner process is gone. A failed
 exit request retains the directory and socket for a later cleanup attempt.
+
+## Extensions
+
+Extensions add commands, UI, gates, hooks, routes, and Ranger tools. The
+[authoring guide](./EXTENSIONS.md) covers the API; this section covers how
+the bridge runs them. Everything lives in `server/src/extensions`, with wire
+types in `shared/extensions.ts`.
+
+```text
+producers (RPC, HTTP, runtimes, Ranger, tasks, $)
+   | emit / run / gate
+   v
+ExtensionBus -- subscriber --> ExtensionHost -- stdio NDJSON JSON-RPC --> one child per mod
+                                    |                                     (roamgate __ext-host)
+                                    +-- command hooks (one process per hook run)
+```
+
+- **Registry:** `registry.json` lists installed and linked extensions, their
+  order, enabled state, consent, and recent failures. The service watches it,
+  so `roamgate ext` changes apply without a restart. Each installed version
+  has its own directory; an update starts the new version for new events
+  while the old one drains its in-flight handlers, then the old directory is
+  pruned.
+- **Host:** one child process per extension with a mod, started lazily by its
+  `activation` triggers (`startup`, `event:`, `command:`, `slot:`) with the
+  allowlisted environment, and stopped after 10 minutes idle unless it is a
+  startup mod (an idle child is roughly 50 MB resident on macOS arm64,
+  `scripts/bench-extensions-memory.ts`). The child loads the mod and sends
+  every `$` call back to the bridge, which checks the declared capability and
+  the guard before acting.
+  Handlers have own-time budgets (5 s by default, 250 ms for `ui.render`, 2 s
+  for terminal input) that pause while the bridge serves their `$` calls, up
+  to 10 minutes. Over budget is cancelled; three ignored cancellations kill the
+  child. Crashed startup mods restart with backoff (1 s to 60 s); five
+  failures within 10 minutes disable the extension.
+- **Bus:** producers `emit` observed events (never awaited), `run` answerable
+  ones (the first answer wins, rewrites carry forward), and `gate` action
+  events. With no subscriber for an event, `wants` is false and producers skip
+  building payloads; an ungated action pays nothing. Handlers run in
+  extension order with matchers applied on the bridge; an extension's own
+  actions skip its own handlers. Rewrites are validated against each event's
+  rewritable fields and length limits.
+- **Action events:** every mutation family has one choke point
+  (`action-events.ts`) that raises its action event with an async-local
+  origin (`browser`, `ranger`, `task`, `extension:<id>`), so the browser,
+  Ranger, scheduled tasks, and `$` calls pass the same gates. A test keeps
+  every browser RPC method in exactly one of the gated map and the ungated
+  set. Extension management, terminal streaming, reads, and focus or layout
+  moves are never gated.
+- **Gates and approvals:** decisions from mods and command hooks combine as
+  deny > ask > allow; malformed results are failures, never allow. An `ask`
+  goes to `ApprovalService`, which pushes the pending list to every browser
+  (and Web Push when none is open) and decides each ask exactly once: first
+  answer, timeout, or cancellation (extension disabled, safe mode, connection
+  replaced, shutdown). Each decision appends a receipt to `receipts.sqlite`
+  before the action resumes; a failed write denies. A gated RPC sends an
+  interim `{ id, pending: { approval_id } }` reply.
+- **Connections:** events carry the connection ID and generation; `$` calls
+  from a handler lease that generation and fail with `connection changed`
+  instead of reaching a replaced runtime.
+- **Browser RPC and pushes:** bridge-global `ext.*` methods (state, manage,
+  install, config, render, actions, commands, frames, approvals, receipts,
+  logs, marketplaces) and an `extensions` push key (state, slot
+  invalidations, approvals, toasts, frame events). `$.ui.invalidate` pushes
+  are coalesced per extension and slot to one per 100 ms.
+- **HTTP:** webhooks (`/api/ext/<id>/hooks/<name>`, bearer token) and proxied
+  documents (`/ext/<id>/web/_/<cap>/`, HMAC capability) are checked before
+  the session; frame assets, the proxy host page, and capability renewal
+  need the session. See [Security](../SECURITY.md#extensions).
+- **Safe mode** (`--safe-mode`, `ROAMGATE_SAFE_MODE=1`, or the persisted
+  runtime switch) stops every child, skips every hook, route, and slot, and
+  denies pending asks. An unreadable `registry.json` forces it.
 
 ## Distribution model
 

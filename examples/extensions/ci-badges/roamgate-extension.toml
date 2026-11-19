@@ -1,0 +1,30 @@
+id = "roamgate.ci-badges"
+name = "CI badges"
+version = "1.0.0"
+api = "^1.0"
+description = "Reference mod: a CI status badge per workspace and recent runs in the Inspector, read with the GitHub CLI on the workspace's own host."
+license = "MIT"
+capabilities = ["ui", "commands", "workspace.read", "process", "process.remote"]
+mod = "./mod.ts"
+activation = ["slot:workspace.badge", "slot:inspector.panel", "command:refresh"]
+
+[config.branch]
+type = "string"
+title = "Branch"
+description = "Branch whose runs are shown; empty means the checkout's current branch."
+scope = "connection"
+
+[[commands]]
+id = "refresh"
+title = "Refresh CI badges"
+icon = "refresh-cw"
+keywords = ["ci", "github"]
+
+[[slots]]
+slot = "workspace.badge"
+id = "status"
+
+[[slots]]
+slot = "inspector.panel"
+id = "runs"
+title = "CI runs"

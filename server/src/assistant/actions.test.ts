@@ -15,6 +15,13 @@ import {
   workspaceRepoSettingsKey,
 } from "../config/gui-settings";
 import type { LegacyConnectionRuntime } from "../connections/runtime";
+import {
+  gateRpcAction,
+  installActionGate,
+  runWithOrigin,
+} from "../extensions/action-events";
+import { ExtensionBus } from "../extensions/events";
+import { silentLogger } from "../utils/logger";
 import * as processUtils from "../utils/process-utils";
 import { createWorkspaceWorktree } from "../worktree/create";
 import { createAssistantContext } from "./context";
@@ -1896,5 +1903,55 @@ describe("Windows Ranger actions", () => {
     expect((await prepared.execute()).status).toBe("succeeded");
     expect(f.resolveWorkspaceGitRoot).not.toHaveBeenCalled();
     expect(f.readWorktreeHooks).not.toHaveBeenCalled();
+  });
+});
+
+describe("Ranger actions and extension gates", () => {
+  test("pane.close from Ranger hits the same gate as the browser, with its origin", async () => {
+    const seen: Record<string, unknown>[] = [];
+    const bus = new ExtensionBus(silentLogger);
+    bus.add({
+      wants: (name) => name === "pane.close",
+      dispatch: async (event) => {
+        seen.push(event);
+        return {
+          event,
+          gate: {
+            decision: "deny",
+            reason: "agent is working",
+            ext: "acme.guard",
+          },
+        };
+      },
+    });
+    const uninstall = installActionGate(bus);
+    try {
+      const f = fixture();
+      const prepared = await f.prepare("close_pane", { pane_id: "w1:p1" });
+      const result = await runWithOrigin("ranger", () => prepared.execute());
+      expect(result).toEqual({
+        status: "failed",
+        detail:
+          "Denied by extension acme.guard: agent is working. Nothing was sent.",
+      });
+      expect(f.mutations).toEqual([]);
+
+      await expect(
+        runWithOrigin("browser", () =>
+          gateRpcAction({ id: "local", generation: 0 }, "pane.close", {
+            pane_id: "w1:p1",
+          }),
+        ),
+      ).rejects.toThrow("Denied by extension acme.guard: agent is working");
+
+      expect(
+        seen.map((event) => [event.name, event.origin, event.pane_id]),
+      ).toEqual([
+        ["pane.close", "ranger", "w1:p1"],
+        ["pane.close", "browser", "w1:p1"],
+      ]);
+    } finally {
+      uninstall();
+    }
   });
 });

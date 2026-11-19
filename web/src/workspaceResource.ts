@@ -4,7 +4,12 @@ import { matchesShortcut, type ShortcutBindings } from "./shortcutBindings";
 import type { Workspace } from "./types";
 import { connectionStorageKey } from "./connectionStorage";
 
-export type InspectorView = "files" | "changes" | "commits" | "history";
+export type BuiltinInspectorView = "files" | "changes" | "commits" | "history";
+/** `ext:<extension id>:<entry id>`; an unknown or removed one falls back to Files. */
+export type InspectorView = BuiltinInspectorView | `ext:${string}`;
+
+export const isExtensionView = (view: string): view is `ext:${string}` =>
+  view.startsWith("ext:");
 export type WorkspaceSurface = "terminal" | "annotations" | InspectorView;
 export const WORKSPACE_INSPECTOR_REQUEST_EVENT =
   "roamgate:workspace-inspector-request";
@@ -288,7 +293,8 @@ export function readInspectorPreferences(
       view:
         value.view === "changes" ||
         value.view === "commits" ||
-        value.view === "history"
+        value.view === "history" ||
+        (typeof value.view === "string" && isExtensionView(value.view))
           ? value.view
           : "files",
       dock: value.dock === "bottom" ? "bottom" : "right",

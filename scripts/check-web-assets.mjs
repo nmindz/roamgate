@@ -1,14 +1,14 @@
-import { readFile, readdir, stat } from "node:fs/promises";
-import { gzipSync } from "node:zlib";
+import { readdir, readFile, stat } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath, URL } from "node:url";
+import { gzipSync } from "node:zlib";
 
 const publicRoot = fileURLToPath(new URL("../server/public/", import.meta.url));
 const maxFileCount = 161;
 // PDF.js and its worker load only when the native viewer is unavailable.
 const maxTotalBytes = 16 * 1024 * 1024;
-const maxInitialJsBytes = 834 * 1024;
-const maxInitialJsGzipBytes = 257 * 1024;
+const maxInitialJsBytes = 835 * 1024;
+const maxInitialJsGzipBytes = 258 * 1024;
 const maxInitialCssBytes = 196 * 1024;
 
 /** Follow eager imports only, from app entries or explicitly selected features. */

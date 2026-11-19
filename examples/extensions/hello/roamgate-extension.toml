@@ -1,0 +1,26 @@
+id = "roamgate.hello"
+name = "Hello"
+version = "1.0.0"
+api = "^1.0"
+description = "Reference extension: a command, a toast, a status bar item and a setting."
+license = "MIT"
+capabilities = ["ui", "commands"]
+mod = "./mod.ts"
+activation = ["command:say-hi", "slot:statusbar.item"]
+
+[config.greeting]
+type = "string"
+title = "Greeting"
+description = "What the toast says."
+default = "Hi"
+
+[[commands]]
+id = "say-hi"
+title = "Say hi"
+icon = "hand"
+keywords = ["hello", "greeting"]
+
+[[slots]]
+slot = "statusbar.item"
+id = "count"
+command = "say-hi"

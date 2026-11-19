@@ -19,6 +19,8 @@ import {
   isWorkspaceInspectorShortcut as resolveShortcut,
   INSPECTOR_SEPARATOR_SIZE,
   readInspectorPreferences,
+  isExtensionView,
+  preferencesStorageKey,
   readResourceFileSelection,
   relativePathWithinCheckout,
   resourceOwnerKey,
@@ -741,5 +743,45 @@ describe("file preview tabs", () => {
     });
     storage.setItem(key, '{"version":1,"paths":["a"],"activePath":"a"}');
     expect(readResourceFileTabs(storage, scope).previewPath).toBeNull();
+  });
+});
+
+describe("extension Inspector views", () => {
+  test("extension views are the ids that start with ext:", () => {
+    expect(isExtensionView("ext:acme.ci:panel")).toBe(true);
+    for (const other of ["files", "history", "extension", "xext:a:b"])
+      expect(isExtensionView(other)).toBe(false);
+  });
+
+  test("a saved extension view survives a reload; a foreign one opens Files", () => {
+    const storage = memoryStorage();
+    const scope = resourceScopeForWorkspace(
+      "local",
+      workspace("main", "/repo"),
+    );
+    writeInspectorPreferences(storage, {
+      scope,
+      open: true,
+      view: "ext:acme.ci:panel",
+      dock: "right",
+      size: 400,
+      expanded: false,
+    });
+    expect(readInspectorPreferences(storage, scope).view).toBe(
+      "ext:acme.ci:panel",
+    );
+    // A malformed id is kept as-is; the panel host resolves it and falls back.
+    storage.setItem(
+      preferencesStorageKey(scope),
+      JSON.stringify({ view: "ext:../etc:passwd", dock: "right" }),
+    );
+    expect(readInspectorPreferences(storage, scope).view).toBe(
+      "ext:../etc:passwd",
+    );
+    storage.setItem(
+      preferencesStorageKey(scope),
+      JSON.stringify({ view: "other:view", dock: "right" }),
+    );
+    expect(readInspectorPreferences(storage, scope).view).toBe("files");
   });
 });

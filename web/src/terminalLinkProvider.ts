@@ -1,4 +1,5 @@
 import type { IBufferLine, ILink, Terminal } from "@xterm/xterm";
+import { getExtensionContributions } from "./extensionsBootstrap";
 import { terminalLinkModifierMatches } from "./shortcutPreferences";
 import {
   findTerminalHttpLinks,
@@ -251,6 +252,55 @@ export function registerTerminalLinkProvider(
           },
         });
       }
+    }
+    // Patterns extensions declare (ticket ids and the like) become http links
+    // of their own, never over a real URL.
+    const patterns = getExtensionContributions().linkPatterns;
+    if (patterns.length) {
+      const urlSpans = findTerminalHttpLinks(text);
+      for (const pattern of patterns)
+        for (const segment of segments) {
+          const row = text.slice(segment.start, segment.end);
+          pattern.regex.lastIndex = 0;
+          for (let found = 0; found < 20; found++) {
+            const match = pattern.regex.exec(row);
+            if (!match) break;
+            if (!match[0]) {
+              pattern.regex.lastIndex += 1;
+              continue;
+            }
+            const span = {
+              start: segment.start + match.index,
+              end: segment.start + match.index + match[0].length,
+            };
+            const range = rangeFor(span);
+            const url = sanitizeTerminalHttpUrl(
+              pattern.url.replace(/\{(\d+)\}/g, (_, index) =>
+                encodeURIComponent(match[Number(index)] ?? ""),
+              ),
+            );
+            if (
+              !range ||
+              !url ||
+              urlSpans.some((other) => overlaps(span, other))
+            )
+              continue;
+            links.push({
+              range,
+              hover: textHover,
+              text: match[0],
+              target: { kind: "url", value: url },
+              activate(event) {
+                event.preventDefault();
+                if (!isStillDisplayed() || !terminalLinkModifierMatches(event))
+                  return;
+                term.clearSelection?.();
+                if (!takeHttpLink(url))
+                  window.open(url, "_blank", "noopener,noreferrer");
+              },
+            });
+          }
+        }
     }
     const candidates: Array<TerminalFileLinkCandidate & { inferred: boolean }> =
       [];

@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { join, resolve } from "node:path";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { serveStatic } from "./static-files";
+import { join, resolve } from "node:path";
+import { appShellContentSecurityPolicy, serveStatic } from "./static-files";
 
 const web = resolve(import.meta.dir, "../../../web");
 
@@ -205,4 +205,86 @@ test("module files (.mjs) are served as JavaScript, so browsers run them", async
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+function directive(policy: string, name: string): string[] {
+  for (const part of policy.split(";")) {
+    const [key, ...sources] = part.trim().split(/\s+/);
+    if (key === name) return sources;
+  }
+  return directive(policy, "default-src");
+}
+
+function inlineScriptHash(code: string): string {
+  return `'sha256-${new Bun.CryptoHasher("sha256").update(code).digest("base64")}'`;
+}
+
+test("the app shell CSP allows its own inline scripts and blocks injected scripts and frames", async () => {
+  for (const path of ["/", "/index.html", "/workspace/example"]) {
+    const response = await serveStatic(
+      new Request(`https://roamgate.example${path}`, {
+        headers: { accept: "text/html" },
+      }),
+      web,
+    );
+    const policy = response.headers.get("content-security-policy") ?? "";
+    const scripts = directive(policy, "script-src");
+    expect(scripts).not.toContain("'unsafe-inline'");
+    expect(scripts).not.toContain("'unsafe-eval'");
+    const html = await response.text();
+    const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
+      (match) => match[1] ?? "",
+    );
+    expect(inline.length).toBeGreaterThan(0);
+    for (const code of inline)
+      expect(scripts).toContain(inlineScriptHash(code));
+    expect(scripts).not.toContain(inlineScriptHash("alert(document.cookie)"));
+    expect(directive(policy, "frame-src")).toEqual(["'self'"]);
+    expect(directive(policy, "object-src")).toEqual(["'none'"]);
+    expect(directive(policy, "base-uri")).toEqual(["'none'"]);
+  }
+  const asset = await serveStatic(
+    new Request("https://roamgate.example/manifest.json"),
+    resolve(web, "public"),
+  );
+  expect(asset.headers.has("content-security-policy")).toBe(false);
+});
+
+test("CSP hashes follow the served entry document, including rebuilt ones", async () => {
+  const root = await mkdtemp(join(tmpdir(), "roamgate-csp-"));
+  try {
+    const entry = (code: string) =>
+      `<!doctype html><title>x</title><script>${code}</script><script type="module" src="/assets/a.js"></script>`;
+    await writeFile(join(root, "index.html"), entry("one()"));
+    const first = await serveStatic(
+      new Request("https://roamgate.example/index.html"),
+      root,
+    );
+    expect(first.headers.get("content-security-policy")).toContain(
+      inlineScriptHash("one()"),
+    );
+    await writeFile(join(root, "index.html"), entry("two(); // rebuilt"));
+    const second = await serveStatic(
+      new Request("https://roamgate.example/index.html"),
+      root,
+    );
+    const policy = second.headers.get("content-security-policy") ?? "";
+    expect(policy).toContain(inlineScriptHash("two(); // rebuilt"));
+    expect(policy).not.toContain(inlineScriptHash("one()"));
+    expect(directive(policy, "script-src")).toHaveLength(3);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the CSP hashes exactly the inline scripts of a document", () => {
+  const policy = appShellContentSecurityPolicy(
+    '<script>a()</script><script src="/x.js"></script><SCRIPT type="text/javascript">b()</SCRIPT>',
+  );
+  expect(directive(policy, "script-src")).toEqual([
+    "'self'",
+    "'wasm-unsafe-eval'",
+    inlineScriptHash("a()"),
+    inlineScriptHash("b()"),
+  ]);
 });
