@@ -4,6 +4,7 @@ import type { Pane } from "./types";
 import type { AssistantPanel } from "./components/AssistantPanel";
 import type { TerminalView } from "./components/TerminalView";
 import type { WorkspaceInspectorHost } from "./components/WorkspaceInspectorHost";
+import { addListener } from "../../shared/listeners";
 
 if (process.env.ROAMGATE_APP_HISTORY_TEST !== "1") {
   test("mobile history input routing in an isolated DOM runtime", async () => {
@@ -103,10 +104,8 @@ if (process.env.ROAMGATE_APP_HISTORY_TEST !== "1") {
       },
     };
     const listeners = new Set<() => void>();
-    const subscribe = (listener: () => void) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    };
+    const subscribe = (listener: () => void) =>
+      addListener(listeners, listener);
     const spies: Array<{ mockRestore: () => void }> = [
       spyOn(store, "get").mockImplementation(() => snapshot),
       spyOn(store, "init").mockImplementation(() => {}),

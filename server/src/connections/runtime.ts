@@ -29,8 +29,7 @@ import { createForwardRpcHandler } from "../bridge/forward-rpc";
 import type { SshForwards } from "../bridge/ssh-forward";
 import {
   readGuiSettings,
-  terminalKittyGraphicsEnabled,
-  terminalSurfaceCodecsEnabled,
+  terminalTransportEnabled,
 } from "../config/gui-settings";
 import {
   createSshTunnelManager,
@@ -323,9 +322,17 @@ export function createLegacyConnectionRuntime(args: {
     formatError: sanitizeConnectionError,
     clientSocketPath,
     surfaceCodecsEnabled: async () =>
-      terminalSurfaceCodecsEnabled(await readGuiSettings(), identity.id),
+      terminalTransportEnabled(
+        await readGuiSettings(),
+        "surface_codecs",
+        identity.id,
+      ),
     kittyGraphicsEnabled: async () =>
-      terminalKittyGraphicsEnabled(await readGuiSettings(), identity.id),
+      terminalTransportEnabled(
+        await readGuiSettings(),
+        "kitty_graphics",
+        identity.id,
+      ),
     herdrProtocol: async () => {
       const protocol: unknown = (await herdr.ping()).protocol;
       assertSupportedHerdrProtocol(protocol);

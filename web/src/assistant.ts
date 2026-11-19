@@ -13,6 +13,7 @@ import {
   type AssistantWorkspaceRef,
   type AssistantTaskDetail,
 } from "../../shared/assistant";
+import { addListener } from "../../shared/listeners";
 import { bridge, type ConnectionStatus } from "./api";
 import { assistantChatSelection } from "./assistantModels";
 import { adjustAssistantMentions } from "./assistantMentions";
@@ -147,8 +148,7 @@ export function assistantActionExecuting(
 }
 
 export function subscribeAssistant(listener: () => void) {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  return addListener(listeners, listener);
 }
 
 export function setAssistantDraft(

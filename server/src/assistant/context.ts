@@ -13,6 +13,7 @@ import {
   ASSISTANT_MAX_WORKSPACES,
   isAssistantMentionTarget,
 } from "../../../shared/assistant";
+import { isIntegerInRange } from "../../../shared/integers";
 import { isRecord } from "../agent/session-utils";
 import { validateConnectionId } from "../connections/protocol";
 import type { LegacyConnectionRuntime } from "../connections/runtime";
@@ -95,7 +96,7 @@ function records(value: unknown): Record<string, unknown>[] {
 }
 
 function count(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+  return isIntegerInRange(value, 0, Number.MAX_SAFE_INTEGER)
     ? value
     : undefined;
 }

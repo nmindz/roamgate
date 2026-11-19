@@ -1,3 +1,4 @@
+import { addListener } from "../../shared/listeners";
 import { useSyncExternalStore } from "react";
 import { roamgateLocalStorage, subscribeLocalStorage } from "./browserStorage";
 
@@ -44,10 +45,7 @@ function initialize() {
 }
 function subscribe(listener: () => void) {
   initialize();
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  return addListener(listeners, listener);
 }
 export function updateSpeechPreferences(patch: Partial<SpeechPreferences>) {
   initialize();

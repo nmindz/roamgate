@@ -1,3 +1,4 @@
+import { addListener } from "../../../shared/listeners";
 import type { HistoryEntry } from "./agentHistory";
 
 /**
@@ -143,6 +144,5 @@ export function updateOutbox(
 }
 
 export function subscribeOutbox(listener: () => void): () => void {
-  outboxListeners.add(listener);
-  return () => outboxListeners.delete(listener);
+  return addListener(outboxListeners, listener);
 }

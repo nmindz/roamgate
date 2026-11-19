@@ -744,8 +744,7 @@ export function createTerminalBridge(args: {
           viewed?.keys() ?? (current?.terminalId ? [current.terminalId] : []),
         );
     for (const id of terminalIds) {
-      args.dropCoalesced?.(ws, terminalCoalesceKey(id));
-      args.dropCoalesced?.(ws, graphicsCoalesceKey(id));
+      dropCoalescedFrames([ws], id);
       attachmentTokens.get(ws)?.delete(id);
       if (clipboardTarget?.ws === ws && clipboardTarget.terminalId === id) {
         clipboardTarget = null;
@@ -872,6 +871,51 @@ export function createTerminalBridge(args: {
       idleTerminals.delete(shared.terminalId);
   }
 
+  function dropCoalescedFrames(
+    viewers: Iterable<ServerWebSocket<unknown>>,
+    terminalId: string,
+  ) {
+    for (const viewer of viewers) {
+      args.dropCoalesced?.(viewer, terminalCoalesceKey(terminalId));
+      args.dropCoalesced?.(viewer, graphicsCoalesceKey(terminalId));
+    }
+  }
+
+  // Bytes count as delivered only once written: a held payload may be
+  // replaced by a newer one, which then still carries them.
+  function sendTerminalGraphics(
+    shared: SharedTerminalSession,
+    view: PaneGraphicsView,
+  ) {
+    const terminalId = shared.terminalId;
+    const keep = new Set(view.keep);
+    for (const viewer of Array.from(shared.viewers)) {
+      const viewport = terminalViewers.get(viewer)?.get(terminalId);
+      if (!viewport) continue;
+      const delivered = (viewport.graphics ??= new Set());
+      for (const id of delivered) if (!keep.has(id)) delivered.delete(id);
+      const assets = view.assets.filter((asset) => !delivered.has(asset.id));
+      const written = !sendWouldBeHeld(viewer);
+      const sent = args.safeSend(
+        viewer,
+        serialize({
+          terminal_graphics: {
+            terminal_id: terminalId,
+            cell_width_px: ENDPOINT_CELL_PX.width,
+            cell_height_px: ENDPOINT_CELL_PX.height,
+            placements: view.placements,
+            assets,
+            keep: view.keep,
+            suppressed: view.suppressed,
+          },
+        }),
+        "terminal-graphics",
+        graphicsCoalesceKey(terminalId),
+      );
+      if (sent && written) for (const asset of assets) delivered.add(asset.id);
+    }
+  }
+
   async function getSharedTerminal(
     terminalId: string,
     cols: number,
@@ -908,10 +952,7 @@ export function createTerminalBridge(args: {
     }
     if (existing) {
       wakeSharedTerminal(existing);
-      for (const viewer of existing.viewers) {
-        args.dropCoalesced?.(viewer, terminalCoalesceKey(terminalId));
-        args.dropCoalesced?.(viewer, graphicsCoalesceKey(terminalId));
-      }
+      dropCoalescedFrames(existing.viewers, terminalId);
       existing.thin.close();
       sharedTerminals.delete(terminalId);
     }
@@ -996,37 +1037,8 @@ export function createTerminalBridge(args: {
           shared.viewers.delete(viewer);
       }
     });
-    // Bytes count as delivered only once written: a held payload may be
-    // replaced by a newer one, which then still carries them.
     thin.on("graphics", (view: PaneGraphicsView) => {
-      if (!isCurrent(creationRevision)) return;
-      const keep = new Set(view.keep);
-      for (const viewer of Array.from(shared.viewers)) {
-        const viewport = terminalViewers.get(viewer)?.get(terminalId);
-        if (!viewport) continue;
-        const delivered = (viewport.graphics ??= new Set());
-        for (const id of delivered) if (!keep.has(id)) delivered.delete(id);
-        const assets = view.assets.filter((asset) => !delivered.has(asset.id));
-        const written = !sendWouldBeHeld(viewer);
-        const sent = args.safeSend(
-          viewer,
-          serialize({
-            terminal_graphics: {
-              terminal_id: terminalId,
-              cell_width_px: ENDPOINT_CELL_PX.width,
-              cell_height_px: ENDPOINT_CELL_PX.height,
-              placements: view.placements,
-              assets,
-              keep: view.keep,
-              suppressed: view.suppressed,
-            },
-          }),
-          "terminal-graphics",
-          graphicsCoalesceKey(terminalId),
-        );
-        if (sent && written)
-          for (const asset of assets) delivered.add(asset.id);
-      }
+      if (isCurrent(creationRevision)) sendTerminalGraphics(shared, view);
     });
     // Bind to the receiving session, NOT the producing PTY: Herdr 0.9.0 sends
     // clipboard to its foreground shell without source attribution. The global
@@ -1077,10 +1089,7 @@ export function createTerminalBridge(args: {
       const viewers = Array.from(shared.viewers).filter(
         (viewer) => current === shared || !current?.viewers.has(viewer),
       );
-      for (const viewer of viewers) {
-        args.dropCoalesced?.(viewer, terminalCoalesceKey(terminalId));
-        args.dropCoalesced?.(viewer, graphicsCoalesceKey(terminalId));
-      }
+      dropCoalescedFrames(viewers, terminalId);
       if (current === shared) sharedTerminals.delete(terminalId);
       // Herdr closes a direct attach whose terminal another client takes
       // over, and the stream can also die with the server. Viewers only see
@@ -1728,7 +1737,7 @@ export function createTerminalBridge(args: {
   }
 
   function setKittyGraphics(enabled: boolean) {
-    if (disposed) return;
+    if (disposed || kittyGraphics === enabled) return;
     kittyGraphics = enabled;
     for (const shared of sharedTerminals.values())
       if (shared.thin instanceof EndpointTerminalSession)

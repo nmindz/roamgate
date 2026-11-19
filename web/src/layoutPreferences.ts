@@ -1,3 +1,4 @@
+import { addListener } from "../../shared/listeners";
 import { useSyncExternalStore } from "react";
 import { roamgateLocalStorage, subscribeLocalStorage } from "./browserStorage";
 
@@ -154,10 +155,7 @@ export function updateLayoutPreferences(patch: Partial<LayoutPreferences>) {
 
 function subscribe(listener: () => void) {
   initializeLayoutPreferences();
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
+  return addListener(listeners, listener);
 }
 
 export function isMobileLayout() {

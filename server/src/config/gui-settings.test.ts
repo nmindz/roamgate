@@ -20,7 +20,7 @@ test("terminal codec preferences survive a fresh process and default to enabled"
       [
         process.execPath,
         "-e",
-        `import { readGuiSettings, updateGuiSettings, terminalSurfaceCodecsEnabled } from ${source}; ${script}`,
+        `import { readGuiSettings, updateGuiSettings, terminalTransportEnabled } from ${source}; const on = (s, id) => terminalTransportEnabled(s, "surface_codecs", id); ${script}`,
       ],
       {
         env: {
@@ -47,7 +47,7 @@ test("terminal codec preferences survive a fresh process and default to enabled"
   try {
     expect(
       await run(
-        `const settings = await readGuiSettings(); console.log(JSON.stringify([terminalSurfaceCodecsEnabled(settings), terminalSurfaceCodecsEnabled(settings, "alpha")]));`,
+        `const settings = await readGuiSettings(); console.log(JSON.stringify([on(settings), on(settings, "alpha")]));`,
       ),
     ).toEqual([true, true]);
     expect(
@@ -57,7 +57,7 @@ test("terminal codec preferences survive a fresh process and default to enabled"
     ).toBe(true);
     expect(
       await run(
-        `const s = await readGuiSettings(); console.log(JSON.stringify([terminalSurfaceCodecsEnabled(s), terminalSurfaceCodecsEnabled(s, "alpha"), terminalSurfaceCodecsEnabled(s, "beta"), terminalSurfaceCodecsEnabled(s, "new"), s.custom.keep]));`,
+        `const s = await readGuiSettings(); console.log(JSON.stringify([on(s), on(s, "alpha"), on(s, "beta"), on(s, "new"), s.custom.keep]));`,
       ),
     ).toEqual([false, false, true, true, "yes"]);
   } finally {

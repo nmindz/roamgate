@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { watchAgentsSeen } from "./agentSeen";
 import type { store } from "./store";
+import { addListener } from "../../shared/listeners";
 
 type Snapshot = ReturnType<typeof store.get>;
 
@@ -47,10 +48,7 @@ function harness(single = false) {
     },
     single,
     getSnapshot: () => snapshot,
-    subscribe: (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
+    subscribe: (listener) => addListener(listeners, listener),
     refresh: () => refreshes++,
     win: win as unknown as Window,
     doc: doc as unknown as Document,

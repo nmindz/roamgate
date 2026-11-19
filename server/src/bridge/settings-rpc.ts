@@ -20,8 +20,7 @@ import {
   repoWorktreeDirectory,
   repoWorktreeHooksEnabled,
   type GuiSettings,
-  terminalKittyGraphicsEnabled,
-  terminalSurfaceCodecsEnabled,
+  terminalTransportEnabled,
   uiSettingKeyIsValid,
   uiSettingValueError,
   updateGuiSettings,
@@ -64,8 +63,16 @@ function terminalTransportSettings(
   connectionId: string,
 ): TerminalTransportSettingsChange {
   return {
-    surface_codecs: terminalSurfaceCodecsEnabled(settings, connectionId),
-    kitty_graphics: terminalKittyGraphicsEnabled(settings, connectionId),
+    surface_codecs: terminalTransportEnabled(
+      settings,
+      "surface_codecs",
+      connectionId,
+    ),
+    kitty_graphics: terminalTransportEnabled(
+      settings,
+      "kitty_graphics",
+      connectionId,
+    ),
   };
 }
 

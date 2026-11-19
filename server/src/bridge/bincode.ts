@@ -101,19 +101,15 @@ export class BinReader {
     return this.u8() !== 0;
   }
   varint(): number {
+    const n = this.varintExact();
+    return typeof n === "bigint" ? Number(n) : n;
+  }
+  /** u64 varint without precision loss: a bigint only past 32 bits. */
+  varintExact(): number | bigint {
     const first = this.u8();
     if (first < 251) return first;
     if (first === 251) return this.take(2).readUInt16LE(0);
     if (first === 252) return this.take(4).readUInt32LE(0);
-    if (first === 253) return Number(this.take(8).readBigUInt64LE(0));
-    throw new Error(`bincode: invalid varint marker ${first}`);
-  }
-  /** u64 varint without precision loss, for opaque fingerprints. */
-  varintBig(): bigint {
-    const first = this.u8();
-    if (first < 251) return BigInt(first);
-    if (first === 251) return BigInt(this.take(2).readUInt16LE(0));
-    if (first === 252) return BigInt(this.take(4).readUInt32LE(0));
     if (first === 253) return this.take(8).readBigUInt64LE(0);
     throw new Error(`bincode: invalid varint marker ${first}`);
   }
