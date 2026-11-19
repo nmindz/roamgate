@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { HistoryEntry, HistoryImage } from "./agentHistory";
+import { base64ToBytes } from "../base64";
 
 /** The most recent messages whose images are loaded; older ones show [Image #N]. */
 const MAX_MESSAGES = 30;
@@ -15,11 +16,9 @@ function imagesKey(entry: HistoryEntry) {
 }
 
 function objectUrl({ media_type, data }: HistoryImage) {
-  const binary = atob(data ?? "");
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index++)
-    bytes[index] = binary.charCodeAt(index);
-  return URL.createObjectURL(new Blob([bytes], { type: media_type }));
+  return URL.createObjectURL(
+    new Blob([base64ToBytes(data ?? "")], { type: media_type }),
+  );
 }
 
 type Asked = { id: string; urls?: string[] };

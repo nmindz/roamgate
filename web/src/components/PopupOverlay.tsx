@@ -10,29 +10,9 @@ import { terminalFontOptions } from "../appearance";
 import { isMobileLayout } from "../layoutPreferences";
 import { terminalPushMatches } from "../terminalConnection";
 import { terminalCellAt, terminalWheelScroll } from "../terminalScroll";
+import { base64ToText, bytesToBase64 } from "../base64";
 
 const RESIZE_DEBOUNCE_MS = 150;
-
-function b64toBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-
-function b64toText(b64: string): string | null {
-  try {
-    return new TextDecoder().decode(b64toBytes(b64));
-  } catch {
-    return null;
-  }
-}
-
-function bytesToB64(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
-  return btoa(s);
-}
 
 /** Rough CSS sizing from Herdr's cells-or-percent popup size config. A cell
  * approximation, not the server's own resolved geometry: the popup's real
@@ -183,7 +163,7 @@ export function PopupOverlay({
 
     const offTerminal = bridge.onTerminal((t) => {
       if (!terminalPushMatches(identity, client, terminalId, t)) return;
-      const text = b64toText(t.bytes);
+      const text = base64ToText(t.bytes);
       if (text !== null) term.write(text);
     });
     const offClosed = bridge.onTerminalClosed((closed) => {
@@ -211,7 +191,7 @@ export function PopupOverlay({
         return;
       void client.call("terminal.input", {
         terminal_id: terminalId,
-        data: bytesToB64(new TextEncoder().encode(data)),
+        data: bytesToBase64(new TextEncoder().encode(data)),
       });
     });
 

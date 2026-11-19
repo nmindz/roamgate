@@ -4,12 +4,13 @@ import {
   type GraphicsKey,
   type GraphicsScene,
   type GraphicsTarget,
-  graphicsFormat,
+  type GraphicsFormat,
   graphicsKey,
   hasGraphics,
   readGraphicsScene,
 } from "./endpoint-graphics";
 import { readCellData, type CellData, type FrameData } from "./thin-client";
+import { isIntegerInRange } from "../../../shared/integers";
 
 export const SURFACE_DELTA_KIND = "endpoint.surface-delta.v1";
 export const SURFACE_REUSE_KIND = "endpoint.surface-reuse.v1";
@@ -35,13 +36,7 @@ function requireSurface(ok: unknown, reason: string): asserts ok {
 }
 
 function uint(value: unknown, max = Number.MAX_SAFE_INTEGER): number {
-  requireSurface(
-    typeof value === "number" &&
-      Number.isSafeInteger(value) &&
-      value >= 0 &&
-      value <= max,
-    "integer out of range",
-  );
+  requireSurface(isIntegerInRange(value, 0, max), "integer out of range");
   return value;
 }
 
@@ -487,7 +482,11 @@ export function readSurfaceReuse(
   };
 }
 
-const REUSE_FORMATS = ["Rgb", "Rgba", "Png"];
+const REUSE_FORMATS: Record<string, GraphicsFormat> = {
+  Rgb: "rgb",
+  Rgba: "rgba",
+  Png: "png",
+};
 
 function reuseKey(value: unknown): GraphicsKey {
   const k = object(value);
@@ -508,12 +507,16 @@ function reuseKey(value: unknown): GraphicsKey {
   }
   const fingerprint = string(k.data_fingerprint);
   requireSurface(/^\d+$/.test(fingerprint), "invalid graphics fingerprint");
+  const format = Object.hasOwn(REUSE_FORMATS, string(k.format))
+    ? REUSE_FORMATS[string(k.format)]
+    : undefined;
+  requireSurface(format, "graphics format");
   return graphicsKey(
     target,
     imageId,
     uint(k.image_width, 0xffffffff),
     uint(k.image_height, 0xffffffff),
-    graphicsFormat(REUSE_FORMATS.indexOf(string(k.format))),
+    format,
     uint(k.data_len),
     fingerprint,
   );

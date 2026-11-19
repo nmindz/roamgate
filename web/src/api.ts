@@ -9,6 +9,8 @@ import {
   type AssistantSnapshot,
   type AssistantTaskNotification,
 } from "../../shared/assistant";
+import { isIntegerInRange } from "../../shared/integers";
+import { addListener } from "../../shared/listeners";
 import {
   type BackgroundLane,
   backgroundCallKey,
@@ -351,15 +353,6 @@ function isIdString(value: unknown): value is string {
   );
 }
 
-function isIntegerInRange(value: unknown, min: number, max: number): boolean {
-  return (
-    typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value >= min &&
-    value <= max
-  );
-}
-
 function isBoundedArray(value: unknown): value is unknown[] {
   return Array.isArray(value) && value.length <= MAX_GRAPHICS_ENTRIES;
 }
@@ -393,25 +386,29 @@ function isValidGraphicsPlacement(value: unknown): boolean {
   );
 }
 
-function isValidGraphicsAsset(value: unknown): boolean {
+type IntegerBounds = Record<string, readonly [min: number, max: number]>;
+
+const ASSET_BOUNDS: IntegerBounds = { width: [1, 65535], height: [1, 65535] };
+const SUPPRESSED_BOUNDS: IntegerBounds = {
+  x: [0, 65535],
+  y: [0, 65535],
+  cols: [1, 65535],
+  rows: [1, 65535],
+};
+
+function hasIntegerFields(value: unknown, bounds: IntegerBounds): boolean {
   if (!value || typeof value !== "object") return false;
-  const asset = value as Record<string, unknown>;
-  return (
-    isIdString(asset.id) &&
-    isIntegerInRange(asset.width, 1, 65535) &&
-    isIntegerInRange(asset.height, 1, 65535) &&
-    typeof asset.png === "string"
+  const fields = value as Record<string, unknown>;
+  return Object.entries(bounds).every(([field, [min, max]]) =>
+    isIntegerInRange(fields[field], min, max),
   );
 }
 
-function isValidSuppressedRect(value: unknown): boolean {
-  if (!value || typeof value !== "object") return false;
-  const rect = value as Record<string, unknown>;
+function isValidGraphicsAsset(value: unknown): boolean {
   return (
-    isIntegerInRange(rect.x, 0, 65535) &&
-    isIntegerInRange(rect.y, 0, 65535) &&
-    isIntegerInRange(rect.cols, 1, 65535) &&
-    isIntegerInRange(rect.rows, 1, 65535)
+    hasIntegerFields(value, ASSET_BOUNDS) &&
+    isIdString((value as Record<string, unknown>).id) &&
+    typeof (value as Record<string, unknown>).png === "string"
   );
 }
 
@@ -419,7 +416,7 @@ function isValidSuppressed(graphics: Record<string, unknown>): boolean {
   const { suppressed } = graphics;
   if (suppressed === undefined || suppressed === null) return true;
   return (
-    isValidSuppressedRect(suppressed) &&
+    hasIntegerFields(suppressed, SUPPRESSED_BOUNDS) &&
     (graphics.placements as unknown[]).length === 0 &&
     (graphics.assets as unknown[]).length === 0 &&
     (graphics.keep as unknown[]).length === 0
@@ -1434,74 +1431,63 @@ export class Bridge {
   }
 
   onHello(cb: (hello: BridgeHello) => void): () => void {
-    this.helloHandlers.add(cb);
+    const off = addListener(this.helloHandlers, cb);
     if (this._hello) cb(this._hello);
-    return () => this.helloHandlers.delete(cb);
+    return off;
   }
 
   onEvent(cb: (event: HerdrEventMsg) => void): () => void {
-    this.eventHandlers.add(cb);
-    return () => this.eventHandlers.delete(cb);
+    return addListener(this.eventHandlers, cb);
   }
 
   onAssistant(cb: (snapshot: AssistantSnapshot) => void): () => void {
-    this.assistantHandlers.add(cb);
-    return () => this.assistantHandlers.delete(cb);
+    return addListener(this.assistantHandlers, cb);
   }
 
   onAssistantNotification(
     cb: (notification: AssistantTaskNotification) => void,
   ): () => void {
-    this.assistantNotificationHandlers.add(cb);
-    return () => this.assistantNotificationHandlers.delete(cb);
+    return addListener(this.assistantNotificationHandlers, cb);
   }
 
   onTerminal(cb: (terminal: TerminalPush) => void): () => void {
-    this.terminalHandlers.add(cb);
-    return () => this.terminalHandlers.delete(cb);
+    return addListener(this.terminalHandlers, cb);
   }
 
   onTerminalClipboard(
     cb: (clipboard: TerminalClipboardPush) => void,
   ): () => void {
-    this.terminalClipboardHandlers.add(cb);
-    return () => this.terminalClipboardHandlers.delete(cb);
+    return addListener(this.terminalClipboardHandlers, cb);
   }
 
   onPopup(cb: (popup: PopupStatePush) => void): () => void {
-    this.popupHandlers.add(cb);
-    return () => this.popupHandlers.delete(cb);
+    return addListener(this.popupHandlers, cb);
   }
 
   onForwards(cb: (forwards: ForwardRecord[]) => void): () => void {
-    this.forwardsHandlers.add(cb);
-    return () => this.forwardsHandlers.delete(cb);
+    return addListener(this.forwardsHandlers, cb);
   }
 
   onUiSetting(cb: (push: UiSettingPush) => void): () => void {
-    this.uiSettingsHandlers.add(cb);
-    return () => this.uiSettingsHandlers.delete(cb);
+    return addListener(this.uiSettingsHandlers, cb);
   }
 
   onTerminalClosed(cb: (closed: TerminalClosedPush) => void): () => void {
-    this.terminalClosedHandlers.add(cb);
-    return () => this.terminalClosedHandlers.delete(cb);
+    return addListener(this.terminalClosedHandlers, cb);
   }
 
   onTerminalGraphics(cb: (graphics: TerminalGraphicsPush) => void): () => void {
-    this.terminalGraphicsHandlers.add(cb);
-    return () => this.terminalGraphicsHandlers.delete(cb);
+    return addListener(this.terminalGraphicsHandlers, cb);
   }
 
   onStatus(cb: (status: ConnectionStatus) => void): () => void {
-    this.statusHandlers.add(cb);
+    const off = addListener(this.statusHandlers, cb);
     cb(this._status);
-    return () => this.statusHandlers.delete(cb);
+    return off;
   }
 
   onControl(cb: (control: BridgeControlMsg) => void): () => void {
-    this.controlHandlers.add(cb);
-    return () => this.controlHandlers.delete(cb);
+    return addListener(this.controlHandlers, cb);
   }
 }
 

@@ -395,7 +395,7 @@ export class EndpointTerminalSession extends EventEmitter {
       !this.repaintPending &&
       this.lastEmit !== null &&
       this.lastEmit.mouseReporting === mouseReporting &&
-      sameCursor(this.lastEmit.cursor, cropped.cursor);
+      sameFields(this.lastEmit.cursor, cropped.cursor, CURSOR_FIELDS);
     const emitFrame = () => {
       if (this.closed) return;
       this.repaintPending = false;
@@ -496,17 +496,16 @@ export class EndpointTerminalSession extends EventEmitter {
   }
 
   // A finished PNG encode is displayable without waiting for a new surface.
-  private republishGraphics() {
+  private republishGraphics(repaint = false) {
+    this.graphicsRepaintPending ||= repaint;
     if (this.fitResizeInFlight || !this.graphicsInput) return;
     this.publishGraphics(this.graphicsInput.scene, this.graphicsInput.pane);
   }
 
   /** Stream images, or send only their placeholder area; applies live. */
   setGraphicsEnabled(enabled: boolean) {
-    if (this.graphicsEnabled === enabled) return;
     this.graphicsEnabled = enabled;
-    this.graphicsRepaintPending = true;
-    this.republishGraphics();
+    this.republishGraphics(true);
   }
 
   private clearDeferredFrame() {
@@ -538,8 +537,7 @@ export class EndpointTerminalSession extends EventEmitter {
       return;
     }
     this.lastEmit.emit();
-    this.graphicsRepaintPending = true;
-    this.republishGraphics();
+    this.republishGraphics(true);
   }
 
   // The wanted request for the latest observed geometry. The pane ratio
@@ -981,17 +979,25 @@ export function cropFrame(
   return { cells, width, height, cursor, hyperlinks: frame.hyperlinks };
 }
 
-function sameCell(a: CellData | undefined, b: CellData | undefined): boolean {
+const CELL_FIELDS = [
+  "symbol",
+  "fg",
+  "bg",
+  "modifier",
+  "skip",
+  "hyperlink",
+] as const satisfies readonly (keyof CellData)[];
+const CURSOR_FIELDS = ["x", "y", "visible", "shape"] as const;
+
+function sameFields<T extends object>(
+  a: T | null | undefined,
+  b: T | null | undefined,
+  fields: readonly (keyof T)[],
+): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  return (
-    a.symbol === b.symbol &&
-    a.fg === b.fg &&
-    a.bg === b.bg &&
-    a.modifier === b.modifier &&
-    a.skip === b.skip &&
-    a.hyperlink === b.hyperlink
-  );
+  for (const field of fields) if (a[field] !== b[field]) return false;
+  return true;
 }
 
 function sameRect(a: PaneSurfacePaneMeta["innerRect"], b: typeof a): boolean {
@@ -1027,16 +1033,9 @@ function sameLinkContent(
   for (let i = 0; i < frame.hyperlinks.length; i++)
     if (shown.frame.hyperlinks[i] !== frame.hyperlinks[i]) return false;
   for (let i = 0; i < frame.cells.length; i++)
-    if (!sameCell(shown.frame.cells[i], frame.cells[i])) return false;
+    if (!sameFields(shown.frame.cells[i], frame.cells[i], CELL_FIELDS))
+      return false;
   return true;
-}
-
-function sameCursor(a: FrameData["cursor"], b: FrameData["cursor"]): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  return (
-    a.x === b.x && a.y === b.y && a.visible === b.visible && a.shape === b.shape
-  );
 }
 
 /** Undefined means no OSC8; null means an invalid ID and must suppress labels. */

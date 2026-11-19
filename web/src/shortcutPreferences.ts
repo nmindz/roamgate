@@ -14,6 +14,7 @@ import {
   type ShortcutId,
   type ShortcutPlatform,
 } from "./shortcutBindings";
+import { addListener } from "../../shared/listeners";
 
 export const SHORTCUT_STORAGE_KEY = "keyboardShortcuts.v1";
 export type ShortcutPreset = {
@@ -401,10 +402,7 @@ export function useShortcutPreferences() {
   return useSyncExternalStore(
     (listener) => {
       initializeShortcutPreferences();
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
+      return addListener(listeners, listener);
     },
     getShortcutSnapshot,
     getShortcutSnapshot,

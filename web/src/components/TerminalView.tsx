@@ -16,6 +16,7 @@ import {
 import { isMobileLayout, LAYOUT_CHANGE_EVENT } from "../layoutPreferences";
 import { terminalFontOptions } from "../appearance";
 import { detectShortcutPlatform } from "../shortcutBindings";
+import { base64ToText, bytesToBase64 } from "../base64";
 import { PaneDragHandle, PaneMoveMenu } from "./PaneMoveMenu";
 import { useSystemBack } from "../systemBack";
 import {
@@ -236,25 +237,6 @@ function focusTerminalEndpoint(
 
 const SYSTEM_CLIPBOARD = "c" as ClipboardSelectionType;
 
-function b64toBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
-}
-function b64toText(b64: string): string | null {
-  try {
-    return new TextDecoder().decode(b64toBytes(b64));
-  } catch {
-    return null;
-  }
-}
-function bytesToB64(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
-  return btoa(s);
-}
-
 function sendBytes(
   client: ConnectionClient,
   bytes: Uint8Array,
@@ -262,7 +244,7 @@ function sendBytes(
 ) {
   return client.call("terminal.input", {
     terminal_id: terminalId,
-    data: bytesToB64(bytes),
+    data: bytesToBase64(bytes),
   });
 }
 
@@ -1622,7 +1604,7 @@ export function TerminalView({
       ) {
         return;
       }
-      const text = b64toText(t.bytes);
+      const text = base64ToText(t.bytes);
       if (text === null) return;
       if (!t.link_frame || t.link_frame !== latestLinkFrame) invalidateLinks();
       linkReadyRef.current = true;

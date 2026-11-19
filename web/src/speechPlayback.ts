@@ -1,3 +1,4 @@
+import { addListener } from "../../shared/listeners";
 import { chunkSpeech } from "./markdownToSpeech";
 import type { SpeechPreferences } from "./speechPreferences";
 
@@ -40,12 +41,7 @@ export class SpeechPlayback {
   private current: SpeechSynthesisUtterance | null = null;
   constructor(private getRuntime = browserSpeechRuntime) {}
   getSnapshot = () => this.state;
-  subscribe = (listener: () => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
+  subscribe = (listener: () => void) => addListener(this.listeners, listener);
   private publish(state: SpeechState) {
     this.state = state;
     for (const listener of this.listeners) listener();

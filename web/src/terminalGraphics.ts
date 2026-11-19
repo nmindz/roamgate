@@ -1,3 +1,4 @@
+import { base64ToBytes } from "./base64";
 import type {
   TerminalGraphicsAsset,
   TerminalGraphicsPayload,
@@ -210,8 +211,7 @@ export class TerminalGraphicsStore<Image extends Closable> {
 }
 
 export async function decodePngBase64(png: string): Promise<ImageBitmap> {
-  const binary = atob(png);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return createImageBitmap(new Blob([bytes], { type: "image/png" }));
+  return createImageBitmap(
+    new Blob([base64ToBytes(png)], { type: "image/png" }),
+  );
 }

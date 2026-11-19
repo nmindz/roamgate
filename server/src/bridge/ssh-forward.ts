@@ -5,6 +5,7 @@ import {
   type SshTunnelError,
 } from "./ssh-tunnel";
 import { type Logger, silentLogger } from "../utils/logger";
+import { addListener } from "../../../shared/listeners";
 
 /**
  * On-demand `-L` forwards for a connection's SSH transport, one supervised
@@ -543,8 +544,7 @@ export function createSshForwards(args: {
   }
 
   function onChange(listener: (forwards: SshForwardRecord[]) => void) {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
+    return addListener(listeners, listener);
   }
 
   return {

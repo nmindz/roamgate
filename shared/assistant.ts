@@ -1,3 +1,5 @@
+import { isIntegerInRange } from "./integers";
+
 export const ASSISTANT_MAX_WORKSPACES = 512;
 export const ASSISTANT_MAX_MENTIONS = 32;
 export const ASSISTANT_MAX_CUSTOM_MODELS = 100;
@@ -430,7 +432,7 @@ function workspaceRef(value: unknown): value is AssistantWorkspaceRef {
 }
 
 function generation(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+  return isIntegerInRange(value, 0, Number.MAX_SAFE_INTEGER);
 }
 
 function mentionText(value: unknown, max = 200): value is string {

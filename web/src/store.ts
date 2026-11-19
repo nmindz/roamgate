@@ -88,6 +88,7 @@ import {
   tabLayoutFor,
 } from "./tabLayout";
 import type { GitDiffEntry, Pane, PaneLayout, Tab, Workspace } from "./types";
+import { addListener } from "../../shared/listeners";
 import {
   gitFileActionLabel,
   gitFileActionSuccessMessage,
@@ -2697,10 +2698,7 @@ export const store = {
     );
   },
   get: () => state,
-  subscribe(l: () => void) {
-    listeners.add(l);
-    return () => listeners.delete(l);
-  },
+  subscribe: (l: () => void) => addListener(listeners, l),
 
   init() {
     if (initialized) return;

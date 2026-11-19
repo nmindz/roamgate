@@ -81,12 +81,6 @@ export function graphicsKey(
   return { id, target, width, height, format, dataLength };
 }
 
-export function graphicsFormat(index: number): GraphicsFormat {
-  const format = FORMATS[index];
-  if (!format) throw new Error("Invalid endpoint surface: graphics format");
-  return format;
-}
-
 function readKey(r: SurfaceReader): GraphicsKey {
   let target: GraphicsTarget;
   let imageId: string;
@@ -103,9 +97,9 @@ function readKey(r: SurfaceReader): GraphicsKey {
   }
   const width = r.number(0xffffffff);
   const height = r.number(0xffffffff);
-  const format = graphicsFormat(r.number(2));
+  const format = FORMATS[r.number(FORMATS.length - 1)];
   const dataLength = r.number();
-  const fingerprint = r.varintBig().toString();
+  const fingerprint = String(r.varintExact());
   return graphicsKey(
     target,
     imageId,

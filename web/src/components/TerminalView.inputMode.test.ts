@@ -13,6 +13,7 @@ import type { Root } from "react-dom/client";
 import type { TerminalPush } from "../api";
 import type { TerminalInputMode } from "../terminalInputMode";
 import type { MobileTerminalShortcutRows } from "../mobileTerminalShortcuts";
+import { addListener } from "../../../shared/listeners";
 
 // Real React commits are essential here: the safety and restore layout effects
 // must run in order before Type's synchronous, user-gesture focus handoff.
@@ -241,10 +242,8 @@ async function registerDomTests() {
         }
         return clients.get(key);
       },
-      onTerminal(callback: (push: TerminalPush) => void) {
-        terminalListeners.add(callback);
-        return () => terminalListeners.delete(callback);
-      },
+      onTerminal: (callback: (push: TerminalPush) => void) =>
+        addListener(terminalListeners, callback),
       onTerminalClipboard: () => noop,
       onTerminalClosed: () => noop,
       onTerminalGraphics: () => noop,

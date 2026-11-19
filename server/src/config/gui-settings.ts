@@ -337,19 +337,13 @@ export function updateGuiSettings(
   });
 }
 
-export function terminalSurfaceCodecsEnabled(
+/** Each transport feature stays on unless turned off per connection. */
+export function terminalTransportEnabled(
   settings: GuiSettings,
+  key: keyof GuiTerminalTransportSettings,
   connectionId = LEGACY_DEFAULT_CONNECTION_ID,
 ): boolean {
-  return settings.terminal_transport?.[connectionId]?.surface_codecs !== false;
-}
-
-/** Kitty images are streamed to browsers unless turned off per connection. */
-export function terminalKittyGraphicsEnabled(
-  settings: GuiSettings,
-  connectionId = LEGACY_DEFAULT_CONNECTION_ID,
-): boolean {
-  return settings.terminal_transport?.[connectionId]?.kitty_graphics !== false;
+  return settings.terminal_transport?.[connectionId]?.[key] !== false;
 }
 
 export function connectionSettingsPrefix(connectionId?: string | null): string {
