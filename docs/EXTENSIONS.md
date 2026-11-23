@@ -56,8 +56,8 @@ roamgate ext logs my.ext --follow
 Reference extensions live in `examples/extensions/`: `hello` (command,
 toast, status bar item, settings), `guard-rails` (deny, ask, fail-closed
 gate, command hook), `ci-badges` (workspace badge, Inspector panel,
-`$.process.run` over SSH), and `omega-sigma-bridge` (context menu command and
-proxied web UI).
+`$.process.run` over SSH), and `local-web-app` (context menu command whose
+`{ open }` answer shows a proxied local web app).
 
 ## Manifest
 
@@ -78,7 +78,7 @@ network_hosts = ["api.github.com"]
 mod = "./src/mod.ts"
 activation = ["slot:workspace.badge", "command:refresh"]
 experimental = false
-start_hint = "omega-sigma serve --port 4747"
+start_hint = "acme-ci serve --port 4747"
 ```
 
 Unknown top-level keys warn; unknown keys inside any table or table entry are
@@ -195,8 +195,8 @@ overrides all of them.
 ```toml
 [[slots]]
 slot = "context-menu.agent"
-id = "omega"
-title = "OmegaSigma"
+id = "open"
+title = "Local web app"
 command = "open"
 when = { agent = "omp" }
 ```

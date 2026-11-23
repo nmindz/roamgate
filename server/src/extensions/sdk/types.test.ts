@@ -106,12 +106,7 @@ test("every $ method Roamgate answers is declared in roamgate.d.ts", () => {
 
 test("AC-01-33: ext types output type-checks the reference extensions and their tests", async () => {
   const { cli, types } = setup();
-  for (const name of [
-    "hello",
-    "guard-rails",
-    "ci-badges",
-    "omega-sigma-bridge",
-  ]) {
+  for (const name of ["hello", "guard-rails", "ci-badges", "local-web-app"]) {
     const dir = join(cli.home, name);
     cpSync(join(examples, name), dir, { recursive: true });
     expect(await types(dir)).toBe(EXIT_OK);

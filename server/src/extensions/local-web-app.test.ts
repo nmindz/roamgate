@@ -7,10 +7,10 @@ import { createExtensionRoutes } from "./routes";
 import { createExtensionSandbox } from "./test-fixtures";
 import { WebhookTokens } from "./webhooks";
 
-const ID = "roamgate.omega-sigma-bridge";
+const ID = "roamgate.local-web-app";
 const example = join(
   import.meta.dir,
-  "../../../examples/extensions/omega-sigma-bridge",
+  "../../../examples/extensions/local-web-app",
 );
 const sandbox = createExtensionSandbox();
 const cleanups: Array<() => void> = [];
@@ -19,7 +19,7 @@ afterEach(async () => {
   await sandbox.cleanup();
 });
 
-/** Stands in for the OmegaSigma server: JSON, SSE, a redirect and a socket. */
+/** Stands in for a local web app: JSON, SSE, a redirect and a socket. */
 function startUpstream() {
   const seen: Array<Record<string, string | null>> = [];
   const second = Promise.withResolvers<void>();
@@ -31,8 +31,8 @@ function startUpstream() {
       if (url.pathname === "/socket") {
         const offered = req.headers.get("sec-websocket-protocol") ?? "";
         return server.upgrade(req, {
-          headers: offered.includes("omega.v1")
-            ? { "sec-websocket-protocol": "omega.v1" }
+          headers: offered.includes("app.v1")
+            ? { "sec-websocket-protocol": "app.v1" }
             : {},
         })
           ? undefined
@@ -79,7 +79,7 @@ function startUpstream() {
 }
 
 function setup(port: number) {
-  const dir = join(sandbox.root, "src", "omega-sigma-bridge");
+  const dir = join(sandbox.root, "src", "local-web-app");
   cpSync(example, dir, { recursive: true });
   const manifest = join(dir, "roamgate-extension.toml");
   // The test's upstream listens on an ephemeral port; the hint checks escaping.
@@ -88,8 +88,8 @@ function setup(port: number) {
     readFileSync(manifest, "utf8")
       .replace("http://127.0.0.1:4747", `http://127.0.0.1:${port}`)
       .replace(
-        'start_hint = "omega-sigma serve --port 4747"',
-        'start_hint = "omega-sigma serve --port 4747 && echo <b>up</b>"',
+        'start_hint = "python3 -m http.server 4747 --bind 127.0.0.1"',
+        'start_hint = "python3 -m http.server 4747 --bind 127.0.0.1 && echo <b>up</b>"',
       ),
   );
   const registry = sandbox.registry();
@@ -136,7 +136,7 @@ async function capBase(base: string, cookie: string): Promise<string> {
   return src.replace(/\/$/, "");
 }
 
-test("AC-01-29: the example declares an OMP agent action whose command opens the proxied viewer", async () => {
+test("the example declares an agent action whose command opens the proxied page", async () => {
   const { registry, host } = setup(4747);
   const record = registry.get(ID);
   if (!record) throw new Error("not registered");
@@ -145,8 +145,8 @@ test("AC-01-29: the example declares an OMP agent action whose command opens the
   expect(manifest?.slots).toEqual([
     {
       slot: "context-menu.agent",
-      id: "omega",
-      title: "OmegaSigma",
+      id: "open",
+      title: "Local web app",
       command: "open",
       when: { agent: "omp" },
     },
@@ -166,11 +166,11 @@ test("AC-01-29: the example declares an OMP agent action whose command opens the
       checkout_path: "/work/repo",
     }),
   ).toEqual({
-    open: `/ext/${ID}/web/?cwd=%2Fwork%2Frepo&session=latest`,
+    open: `/ext/${ID}/web/?cwd=%2Fwork%2Frepo`,
   });
 });
 
-test("AC-01-28: logged in, HTTP reaches the loopback upstream without Roamgate credentials", async () => {
+test("logged in, HTTP reaches the loopback upstream without Roamgate credentials", async () => {
   const { upstream, seen } = startUpstream();
   const { base, login } = setup(upstream.port as number);
   expect((await fetch(`${base}/ext/${ID}/web/`)).status).toBe(401);
@@ -207,7 +207,7 @@ test("AC-01-28: logged in, HTTP reaches the loopback upstream without Roamgate c
   expect(seen).toHaveLength(2);
 });
 
-test("AC-01-28: server-sent events stream through as they are sent", async () => {
+test("server-sent events stream through as they are sent", async () => {
   const { upstream, releaseSecond } = startUpstream();
   const { base, login } = setup(upstream.port as number);
   const proxied = await capBase(base, await login());
@@ -229,13 +229,13 @@ test("AC-01-28: server-sent events stream through as they are sent", async () =>
   expect(rest).toBe("data: two\n\n");
 });
 
-test("AC-01-28: WebSocket messages and the subprotocol pass through the capability route", async () => {
+test("WebSocket messages and the subprotocol pass through the capability route", async () => {
   const { upstream } = startUpstream();
   const { base, login } = setup(upstream.port as number);
   const proxied = await capBase(base, await login());
   const socket = new WebSocket(
     `${base.replace("http:", "ws:")}${proxied}/socket`,
-    ["omega.v1"],
+    ["app.v1"],
   );
   cleanups.push(() => socket.close());
   socket.binaryType = "arraybuffer";
@@ -253,7 +253,7 @@ test("AC-01-28: WebSocket messages and the subprotocol pass through the capabili
   socket.addEventListener("open", () => opened.resolve());
   socket.addEventListener("error", () => opened.reject(new Error("no socket")));
   await opened.promise;
-  expect(socket.protocol).toBe("omega.v1");
+  expect(socket.protocol).toBe("app.v1");
   socket.send("ping");
   socket.send(new Uint8Array([1, 2, 3]));
   await received.promise;
@@ -298,7 +298,7 @@ test("capabilities: the logged-in host page renews a capability before it lapses
   expect((await fetch(`${base}${proxied}/api/echo`)).status).toBe(200);
 });
 
-test("AC-01-28: a stopped upstream shows the not-running page with the escaped start hint", async () => {
+test("a stopped upstream shows the not-running page with the escaped start hint", async () => {
   const { upstream } = startUpstream();
   const { base, login } = setup(upstream.port as number);
   const proxied = await capBase(base, await login());
@@ -317,9 +317,9 @@ test("AC-01-28: a stopped upstream shows the not-running page with the escaped s
     });
     expect(response.status).toBe(502);
     const html = await response.text();
-    expect(html).toContain("OmegaSigma is not running");
+    expect(html).toContain("Local web app is not running");
     expect(html).toContain(
-      "omega-sigma serve --port 4747 &amp;&amp; echo &lt;b&gt;up&lt;/b&gt;",
+      "python3 -m http.server 4747 --bind 127.0.0.1 &amp;&amp; echo &lt;b&gt;up&lt;/b&gt;",
     );
     expect(html).not.toContain("<b>up</b>");
     expect(response.headers.get("content-security-policy")).toStartWith(

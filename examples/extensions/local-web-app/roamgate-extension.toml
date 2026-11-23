@@ -1,25 +1,25 @@
-id = "roamgate.omega-sigma-bridge"
-name = "OmegaSigma"
+id = "roamgate.local-web-app"
+name = "Local web app"
 version = "1.0.0"
 api = "^1.0"
-description = "Reference extension: opens the OmegaSigma run viewer for OMP agents, proxied from its local server."
+description = "Reference extension: opens a web app running on this computer, proxied by Roamgate, from an agent's context menu."
 license = "MIT"
 capabilities = ["commands", "http.routes"]
 mod = "./mod.ts"
 activation = ["command:open"]
-start_hint = "omega-sigma serve --port 4747"
+start_hint = "python3 -m http.server 4747 --bind 127.0.0.1"
 
 [[commands]]
 id = "open"
-title = "Open in OmegaSigma"
+title = "Open local web app"
 icon = "external-link"
-keywords = ["omp", "omega", "runs"]
+keywords = ["local", "web", "app"]
 when = { agent = "omp" }
 
 [[slots]]
 slot = "context-menu.agent"
-id = "omega"
-title = "OmegaSigma"
+id = "open"
+title = "Local web app"
 command = "open"
 when = { agent = "omp" }
 
