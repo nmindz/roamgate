@@ -136,4 +136,4 @@ out of Git.
 
 Unlabeled PRs are labeled automatically (`documentation`, `dependencies`, `bug`,
 or `enhancement`); correct the label before merging if needed. Contributions are
-MIT-licensed.
+licensed under GPL-3.0-or-later (see [LICENSE](./LICENSE)).

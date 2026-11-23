@@ -2,7 +2,7 @@
   "name": "roamgate-web",
   "private": true,
   "version": "0.9.0",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.config.ts",

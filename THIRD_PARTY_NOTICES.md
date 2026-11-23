@@ -1,8 +1,8 @@
 # Third-Party Notices
 
 Roamgate includes or renders assets from third-party projects. Those assets
-remain under their original licenses and are not relicensed by the project
-MIT license.
+keep their own licenses and are not relicensed under the project's
+GPL-3.0-or-later license.
 
 ## Roamgate artwork
 
@@ -38,6 +38,22 @@ uses a copy at `site/assets/pi.svg`.
 When updating these website icons, copy them from the application sources
 used by `web/src/components/AgentIcon.tsx`. The deployed site includes their
 notices in `site/assets/agent-icons-LICENSE.txt`.
+
+## Bun runtime
+
+Release binaries are built with `bun build --compile` and embed the
+[Bun](https://bun.com) runtime, which is MIT licensed. Bun links
+JavaScriptCore/WebKit, which is licensed under LGPL-2.0/2.1. See
+<https://bun.com/docs/project/license> for the full list of Bun's licenses and
+bundled components.
+
+## elkjs
+
+The web client bundles [elkjs](https://github.com/kieler/elkjs) (via
+`beautiful-mermaid`) for Mermaid diagram layout. elkjs is licensed under the
+Eclipse Public License 2.0; its source is available at
+<https://github.com/kieler/elkjs>. See
+[`LICENSES/ELKJS-EPL-2.0.txt`](./LICENSES/ELKJS-EPL-2.0.txt).
 
 ## Trademarks
 

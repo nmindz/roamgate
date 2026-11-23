@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.9.0",
   "description": "Roamgate: an independent community Web and PWA client for Herdr.",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "author": "Arthur",
   "homepage": "https://roamgate.dev/",
   "repository": {
