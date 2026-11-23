@@ -303,7 +303,7 @@ export function createExtensionRpc(options: ExtensionRpcOptions): ExtensionRpc {
         if (registry.safeMode()) return { entries: [] };
         const context = record(params.context) as ExtensionSlotContext;
         const viewer = record(params.viewer);
-        const jobs: Array<Promise<ExtensionUiRenderEntry>> = [];
+        const jobs: Array<Promise<ExtensionUiRenderEntry | null>> = [];
         for (const { id, manifest } of host.slotContributors(slot)) {
           const declared = manifest.slots.filter(
             (entry) => entry.slot === slot,
@@ -330,16 +330,27 @@ export function createExtensionRpc(options: ExtensionRpcOptions): ExtensionRpc {
               },
             };
             jobs.push(
-              host.answerOne(id, event).then((answer) => ({
-                ext: id,
-                entry_id: entry.id,
-                value:
-                  "error" in answer ? { error: answer.error } : answer.value,
-              })),
+              host.answerOne(id, event).then((answer) =>
+                // Without a ui.render answer the browser keeps the manifest's static entry.
+                "unanswered" in answer
+                  ? null
+                  : {
+                      ext: id,
+                      entry_id: entry.id,
+                      value:
+                        "error" in answer
+                          ? { error: answer.error }
+                          : answer.value,
+                    },
+              ),
             );
           }
         }
-        return { entries: await Promise.all(jobs) };
+        return {
+          entries: (await Promise.all(jobs)).filter(
+            (entry): entry is ExtensionUiRenderEntry => entry !== null,
+          ),
+        };
       },
       "ext.ui.action": async (params) => {
         const ext = requireString(params.ext, "ext");

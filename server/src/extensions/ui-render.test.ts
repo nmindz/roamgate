@@ -87,6 +87,41 @@ id = "boom"`,
   ).toEqual([]);
 });
 
+test("a mod without a ui.render answer leaves its static entry; an explicit null hides it", async () => {
+  const registry = sandbox.registry();
+  sandbox.link(
+    "acme.menu",
+    `export function register(on) {
+      on("command.run", { command: "open" }, () => ({ ok: true }));
+      on("ui.render", { entry_id: "hidden" }, () => null);
+    }`,
+    `capabilities = ["commands"]
+activation = ["command:open"]
+[[commands]]
+id = "open"
+title = "Open"
+[[slots]]
+slot = "context-menu.agent"
+id = "static"
+title = "Open"
+command = "open"
+[[slots]]
+slot = "context-menu.agent"
+id = "hidden"
+title = "Gone"
+command = "open"`,
+    registry,
+  );
+  const rpc = rpcFor(registry);
+  const result = (await rpc.handle("ext.ui.render", {
+    slot: "context-menu.agent",
+    context: { agent: "omp" },
+  })) as ExtensionUiRenderResult;
+  expect(result.entries).toEqual([
+    { ext: "acme.menu", entry_id: "hidden", value: null },
+  ]);
+});
+
 test("a hidden entry never activates its mod; ui.action reaches the contributor", async () => {
   const registry = sandbox.registry();
   sandbox.link(

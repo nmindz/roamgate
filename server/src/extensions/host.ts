@@ -567,12 +567,13 @@ export class ExtensionHost implements EventSubscriber {
   /**
    * Runs one extension's handlers for `event` (`ui.render`, `ui.action`),
    * activating it on demand. Resolves with its answer, or an error when a
-   * handler failed or nothing answered with a failure.
+   * handler failed or nothing answered with a failure. `unanswered` marks a
+   * null that no handler returned, so callers can keep their defaults.
    */
   async answerOne(
     id: string,
     event: ExtensionEventBase,
-  ): Promise<{ value: unknown } | { error: string }> {
+  ): Promise<{ value: unknown; unanswered?: true } | { error: string }> {
     const runtime = this.runtimes.get(id);
     if (!runtime) return { error: `extension is not running: ${id}` };
     const before = runtime.lastError;
@@ -580,7 +581,7 @@ export class ExtensionHost implements EventSubscriber {
     if (outcome.answer) return { value: outcome.answer.value };
     const latest = this.runtimes.get(id)?.lastError ?? runtime.lastError;
     if (latest && latest !== before) return { error: latest.message };
-    return { value: null };
+    return { value: null, unanswered: true };
   }
 
   async dispose(): Promise<void> {
