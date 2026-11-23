@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { sshReadCommandArgv } from "../bridge/ssh-command";
 import type { SessionFile } from "./session-types";
 
@@ -32,6 +33,14 @@ export type AgentSessionFileAccess = {
    * integration, nothing names the pane's session.
    */
   findPiSessionForCwd(cwd: string): Promise<SessionFile | null>;
+  /** A remote omp transcript by session ID; local ones are found locally. */
+  findOmpSessionById(id: string): Promise<SessionFile | null>;
+  /**
+   * The newest omp session started in a directory, for an omp pane Herdr
+   * reports no session for. Local only: omp names the directory from the
+   * host's own home and temporary directories.
+   */
+  findOmpSessionForCwd(cwd: string): Promise<SessionFile | null>;
   /** A remote Claude transcript by session ID; local ones are found locally. */
   findClaudeSessionById(id: string): Promise<SessionFile | null>;
   /**
@@ -127,6 +136,106 @@ export function piSessionDirectoryName(cwd: string): string | null {
   return `--${cwd.slice(1).replace(/\//g, "-")}--`;
 }
 
+function realPath(path: string) {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/** omp's legacy session directory name: the absolute path, slashes as dashes, between "--". */
+function ompAbsoluteDirectoryName(path: string) {
+  return `--${resolve(path)
+    .replace(/^[/\\]/, "")
+    .replace(/[/\\:]/g, "-")}--`;
+}
+
+/** `prefix` joined to a relative path with its separators as dashes. */
+function ompPrefixedDirectoryName(prefix: string, rel: string) {
+  const tail = rel.replace(/[/\\:]/g, "-");
+  if (!tail) return prefix;
+  return prefix.endsWith("-") ? `${prefix}${tail}` : `${prefix}-${tail}`;
+}
+
+function isInside(rel: string) {
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/**
+ * The directories omp keeps a working directory's sessions in, under a
+ * sessions root, current name first: a path under the temporary directory
+ * becomes `-tmp-<rest>`, one under home `-<rest>`, any other `--<path>--`
+ * (also omp's older name for every path). Separators become dashes.
+ */
+export function ompSessionDirectoryNames(
+  cwd: string,
+  home: string = homedir(),
+  temp: string = tmpdir(),
+): string[] {
+  const path = realPath(cwd);
+  const underTemp = relative(realPath(temp), path);
+  const underHome = relative(realPath(home), path);
+  const current = isInside(underTemp)
+    ? ompPrefixedDirectoryName("-tmp", underTemp)
+    : isInside(underHome)
+      ? ompPrefixedDirectoryName("-", underHome)
+      : ompAbsoluteDirectoryName(path);
+  return [...new Set([current, ompAbsoluteDirectoryName(path)])];
+}
+
+/**
+ * Every local omp sessions root: the default agent directory (or
+ * PI_CONFIG_DIR), XDG data and its profiles, PI_CODING_AGENT_DIR, and
+ * named profiles.
+ */
+export async function ompSessionRoots(): Promise<string[]> {
+  const ompRoot = join(homedir(), process.env.PI_CONFIG_DIR || ".omp");
+  const roots = new Set([join(ompRoot, "agent", "sessions")]);
+  const xdgDataHome = process.env.XDG_DATA_HOME?.trim();
+  if (xdgDataHome) {
+    const xdgRoot = resolve(xdgDataHome, "omp");
+    roots.add(join(xdgRoot, "sessions"));
+    for (const profile of await directoryNames(join(xdgRoot, "profiles"))) {
+      roots.add(join(xdgRoot, "profiles", profile, "sessions"));
+    }
+  }
+  if (process.env.PI_CODING_AGENT_DIR?.trim()) {
+    roots.add(join(localPiDirectory(), "sessions"));
+  }
+  for (const profile of await directoryNames(join(ompRoot, "profiles"))) {
+    roots.add(join(ompRoot, "profiles", profile, "agent", "sessions"));
+  }
+  return [...roots];
+}
+
+async function directoryNames(path: string) {
+  try {
+    return (await readdir(path, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+/** The newest top-level .jsonl in a directory; nested files are subagent transcripts. */
+async function newestLocalJsonl(directory: string) {
+  let newest: SessionFile | null = null;
+  let entries: string[];
+  try {
+    entries = await readdir(directory);
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!entry.endsWith(".jsonl")) continue;
+    const file = await localSessionFile(join(directory, entry));
+    if (file && (!newest || file.mtimeMs > newest.mtimeMs)) newest = file;
+  }
+  return newest;
+}
+
 function localPiDirectory() {
   const configured = process.env.PI_CODING_AGENT_DIR?.trim();
   if (!configured) return join(homedir(), ".pi", "agent");
@@ -157,16 +266,19 @@ export const localAgentSessionFiles: AgentSessionFileAccess = {
   async findPiSessionForCwd(cwd) {
     const name = piSessionDirectoryName(cwd);
     if (!name) return null;
-    const directory = join(localPiDirectory(), "sessions", name);
+    return newestLocalJsonl(join(localPiDirectory(), "sessions", name));
+  },
+  async findOmpSessionById() {
+    return null;
+  },
+  async findOmpSessionForCwd(cwd) {
+    if (!isAbsolute(cwd)) return null;
     let newest: SessionFile | null = null;
-    try {
-      for (const entry of await readdir(directory)) {
-        if (!entry.endsWith(".jsonl")) continue;
-        const file = await localSessionFile(join(directory, entry));
+    for (const root of await ompSessionRoots()) {
+      for (const name of ompSessionDirectoryNames(cwd)) {
+        const file = await newestLocalJsonl(join(root, name));
         if (file && (!newest || file.mtimeMs > newest.mtimeMs)) newest = file;
       }
-    } catch {
-      return null;
     }
     return newest;
   },
@@ -453,6 +565,17 @@ if matches:
         '-name "*.jsonl"',
         "Pi",
       );
+    },
+    findOmpSessionById(id) {
+      return findRemoteSession(
+        id,
+        "$HOME/${PI_CONFIG_DIR:-.omp}/agent/sessions",
+        '-name "$id.jsonl" -o -name "*_$id.jsonl"',
+        "omp",
+      );
+    },
+    findOmpSessionForCwd() {
+      return Promise.resolve(null);
     },
     async findClaudeSuccessor(path, id) {
       if (!validClaudeSessionId(id)) return null;

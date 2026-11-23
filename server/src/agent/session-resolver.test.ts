@@ -13,6 +13,7 @@ import { join } from "node:path";
 import {
   type AgentSessionFileAccess,
   localAgentSessionFiles,
+  ompSessionDirectoryNames,
 } from "./session-file-access";
 import {
   createAgentSessionResolverContext,
@@ -225,17 +226,25 @@ describe("OMP session resolution", () => {
     expect(result.status).toBe("ok");
     expect(result.path).toBe(sessionPath);
   });
-  test("uses reported remote transcript paths without local ID discovery", async () => {
+  test("uses reported remote transcript paths and searches remote ids on the host", async () => {
     const remotePath =
       "/remote/.omp/profiles/work/agent/sessions/session.jsonl";
+    const searched: string[] = [];
+    const remoteFile = (path: string) => ({
+      path,
+      mtimeMs: 1,
+      size: 1,
+      sessionId: null,
+    });
     const files = {
       remote: true,
-      statFile: async (path: string) => ({
-        path,
-        mtimeMs: 1,
-        size: 1,
-        sessionId: null,
-      }),
+      statFile: async (path: string) => remoteFile(path),
+      findOmpSessionById: async (id: string) => {
+        searched.push(id);
+        return id.startsWith("known-")
+          ? remoteFile(`/remote/.omp/agent/sessions/-proj/ts_${id}.jsonl`)
+          : null;
+      },
     } as unknown as typeof localAgentSessionFiles;
     const direct = await resolveAgentSession(
       { pane_id: "p1" },
@@ -250,21 +259,89 @@ describe("OMP session resolution", () => {
     );
     expect(direct.status).toBe("ok");
     expect(direct.path).toBe(remotePath);
+    expect(searched).toEqual([]);
 
-    const remoteId = `remote-${crypto.randomUUID()}`;
-    const byId = await resolveAgentSession(
+    const byId = (value: string) =>
+      resolveAgentSession(
+        { pane_id: "p1" },
+        async () => ({
+          agent: {
+            agent: "omp",
+            agent_session: { agent: "omp", kind: "id", value },
+          },
+        }),
+        files,
+        createAgentSessionResolverContext(),
+      );
+    const found = await byId("known-1");
+    expect(found.status).toBe("ok");
+    expect(found.path).toBe(
+      "/remote/.omp/agent/sessions/-proj/ts_known-1.jsonl",
+    );
+    const missing = await byId("unknown-1");
+    expect(missing.status).toBe("missing_file");
+    expect(missing.path).toBe("");
+    expect(searched).toEqual(["known-1", "unknown-1"]);
+  });
+
+  test("falls back to the newest session in the pane's directory without an omp session", async () => {
+    const root = await mkdtemp(join(tmpdir(), "roamgate-omp-cwd-"));
+    tempDirectories.push(root);
+    process.env.XDG_DATA_HOME = join(root, "data");
+    delete process.env.PI_CODING_AGENT_DIR;
+    const cwd = join(root, "project");
+    await mkdir(cwd, { recursive: true });
+    const sessions = join(root, "data", "omp", "sessions");
+    const [current] = ompSessionDirectoryNames(cwd);
+    const directory = join(sessions, current ?? "");
+    await mkdir(join(directory, "artifacts"), { recursive: true });
+    const older = join(directory, "2026-01-01T00-00-00-000Z_old-id.jsonl");
+    const newer = join(directory, "2026-01-02T00-00-00-000Z_new-id.jsonl");
+    await writeFile(older, "{}\n");
+    await writeFile(newer, "{}\n");
+    await writeFile(join(directory, "artifacts", "Child.jsonl"), "{}\n");
+    await utimes(older, new Date(1_000), new Date(1_000));
+    await utimes(newer, new Date(2_000), new Date(2_000));
+    const result = await resolveAgentSession(
       { pane_id: "p1" },
-      async () => ({
-        agent: {
-          agent: "omp",
-          agent_session: { agent: "omp", kind: "id", value: remoteId },
-        },
-      }),
-      files,
+      async () => ({ agent: { agent: "omp", cwd } }),
+      localAgentSessionFiles,
       createAgentSessionResolverContext(),
     );
-    expect(byId.status).toBe("missing_file");
-    expect(byId.path).toBe("");
+    expect(result.status).toBe("ok");
+    expect(result.path).toBe(newer);
+    expect(result.session).toEqual({
+      source: "omp-local",
+      agent: "omp",
+      kind: "id",
+      value: "new-id",
+    });
+
+    const elsewhere = await resolveAgentSession(
+      { pane_id: "p1" },
+      async () => ({ agent: { agent: "omp", cwd: join(root, "other") } }),
+      localAgentSessionFiles,
+      createAgentSessionResolverContext(),
+    );
+    expect(elsewhere.status).toBe("missing_session");
+  });
+
+  test("names omp session directories like omp does", () => {
+    const home = "/Users/me";
+    const temp = "/var/folders/xy/T";
+    expect(
+      ompSessionDirectoryNames("/Users/me/Projects/app", home, temp),
+    ).toEqual(["-Projects-app", "--Users-me-Projects-app--"]);
+    expect(ompSessionDirectoryNames("/Users/me", home, temp)).toEqual([
+      "-",
+      "--Users-me--",
+    ]);
+    expect(
+      ompSessionDirectoryNames("/var/folders/xy/T/run", home, temp),
+    ).toEqual(["-tmp-run", "--var-folders-xy-T-run--"]);
+    expect(ompSessionDirectoryNames("/srv/app", home, temp)).toEqual([
+      "--srv-app--",
+    ]);
   });
 });
 

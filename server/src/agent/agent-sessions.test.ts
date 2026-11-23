@@ -107,6 +107,12 @@ function remotePiFiles(text: string): AgentSessionFileAccess {
     async findPiSessionForCwd() {
       return null;
     },
+    async findOmpSessionById() {
+      return null;
+    },
+    async findOmpSessionForCwd() {
+      return null;
+    },
     async findPiSessionById() {
       return null;
     },

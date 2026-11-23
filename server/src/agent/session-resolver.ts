@@ -1,4 +1,3 @@
-import type { Dirent } from "node:fs";
 import { existsSync, statSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -18,6 +17,7 @@ import {
   type AgentSessionFileAccess,
   codexHome,
   localAgentSessionFiles,
+  ompSessionRoots,
 } from "./session-file-access";
 import type {
   AgentHistoryParams,
@@ -215,45 +215,11 @@ async function findOmpSession(
   context: AgentSessionResolverContext,
 ) {
   return resolveCachedSessionPath(context, `omp:${id}`, async () => {
-    const configuredRoot = process.env.PI_CONFIG_DIR || ".omp";
-    const ompRoot = join(homedir(), configuredRoot);
-    const roots = new Set([join(ompRoot, "agent", "sessions")]);
-    const xdgDataHome = process.env.XDG_DATA_HOME?.trim();
-    if (xdgDataHome) {
-      const xdgRoot = resolve(xdgDataHome, "omp");
-      roots.add(join(xdgRoot, "sessions"));
-      let xdgProfiles: Dirent[];
-      try {
-        xdgProfiles = await readdir(join(xdgRoot, "profiles"), {
-          withFileTypes: true,
-        });
-      } catch {
-        xdgProfiles = [];
-      }
-      for (const profile of xdgProfiles) {
-        if (profile.isDirectory()) {
-          roots.add(join(xdgRoot, "profiles", profile.name, "sessions"));
-        }
-      }
-    }
-    if (process.env.PI_CODING_AGENT_DIR?.trim()) {
-      roots.add(join(piAgentDirectory(), "sessions"));
-    }
-    const profileRoot = join(ompRoot, "profiles");
-    let profiles: Dirent[];
-    try {
-      profiles = await readdir(profileRoot, { withFileTypes: true });
-    } catch {
-      profiles = [];
-    }
-    for (const profile of profiles) {
-      if (profile.isDirectory()) {
-        roots.add(join(profileRoot, profile.name, "agent", "sessions"));
-      }
-    }
     const files = (
       await Promise.all(
-        [...roots].map((root) =>
+        (
+          await ompSessionRoots()
+        ).map((root) =>
           walkFiles(root, (path) => {
             const name = basename(path);
             return name === `${id}.jsonl` || name.endsWith(`_${id}.jsonl`);
@@ -312,18 +278,16 @@ async function sessionFileFor(
   if (agent === "pi" && files.remote) {
     return files.findPiSessionById(session.value);
   }
+  if (agent === "omp" && files.remote) {
+    return files.findOmpSessionById(session.value);
+  }
   if (agent === "codex") return findCodexSession(session.value, files, context);
   if (agent === "claude")
     return findClaudeTranscript(session.value, files, context);
   let path: string | null = null;
   if (agent === "kimi") path = await findKimiSession(session.value, context);
-  if (agent === "pi" || agent === "omp")
-    path =
-      agent === "omp"
-        ? files.remote
-          ? null
-          : await findOmpSession(session.value, context)
-        : await findPiSession(session.value, context);
+  if (agent === "omp") path = await findOmpSession(session.value, context);
+  if (agent === "pi") path = await findPiSession(session.value, context);
   if (path) return files.statFile(path);
   return null;
 }
@@ -429,17 +393,20 @@ export async function resolveAgentSessionInfo(
       };
     }
   }
-  if (agent === "pi" && !resolvedSession && cwd) {
-    // Without Herdr's Pi integration: the newest session in its directory.
-    const found = await files.findPiSessionForCwd(cwd);
+  if ((agent === "pi" || agent === "omp") && !resolvedSession && cwd) {
+    // Without Herdr's Pi or omp integration: the newest session in its directory.
+    const found =
+      agent === "pi"
+        ? await files.findPiSessionForCwd(cwd)
+        : await files.findOmpSessionForCwd(cwd);
     const id = found
       ? /(?:^|_)([^_]+)\.jsonl$/.exec(basename(found.path))?.[1]
       : undefined;
     if (found && id) {
       file = found;
       resolvedSession = {
-        source: "pi-local",
-        agent: "pi",
+        source: `${agent}-local`,
+        agent,
         kind: "id",
         value: id,
       };

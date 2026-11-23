@@ -198,6 +198,24 @@ test("a remote Pi directory search names only a safe directory", async () => {
   expect(commands[0]).toContain("/sessions/--srv-app--");
 });
 
+test("a remote omp id search looks under the host's omp sessions; no remote directory search", async () => {
+  const commands: string[] = [];
+  const files = createAgentSessionFileAccess({
+    sshHost: "operator@example.com",
+    shQuote: quote,
+    async runBinaryProcessWithTimeout(argv) {
+      commands.push(argv.at(-1) ?? "");
+      return { code: 44, stdout: Buffer.alloc(0), stderr: "" };
+    },
+  });
+  expect(await files.findOmpSessionById("0190-abc")).toBeNull();
+  expect(commands).toHaveLength(1);
+  expect(commands[0]).toContain("$HOME/${PI_CONFIG_DIR:-.omp}/agent/sessions");
+  expect(commands[0]).toContain("0190-abc");
+  expect(await files.findOmpSessionForCwd("/srv/app")).toBeNull();
+  expect(commands).toHaveLength(1);
+});
+
 test("Pi names a directory's sessions after its path", () => {
   expect(piSessionDirectoryName("/home/user/src/my-app.example.com/pi")).toBe(
     "--home-user-src-my-app.example.com-pi--",

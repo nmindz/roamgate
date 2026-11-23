@@ -43,6 +43,12 @@ function fixture(agent = "pi") {
     async findPiSessionById() {
       return file;
     },
+    async findOmpSessionById() {
+      return file;
+    },
+    async findOmpSessionForCwd() {
+      return null;
+    },
     async findClaudeSessionById() {
       return file;
     },
