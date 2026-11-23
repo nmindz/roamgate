@@ -47,6 +47,12 @@ export function useSlotContext(target: SlotTarget): Record<string, unknown> {
   const tabId = tab?.tab_id ?? target.tabId;
   const paneId = pane?.pane_id ?? target.paneId;
   const agent = pane?.agent ?? target.agent;
+  // Agent rows carry only their pane; its own directory stands in for the workspace's.
+  const checkoutPath =
+    workspace?.worktree?.checkout_path ??
+    workspace?.cwd ??
+    pane?.foreground_cwd ??
+    pane?.cwd;
   return useMemo(() => {
     const root = document.documentElement;
     return {
@@ -56,9 +62,7 @@ export function useSlotContext(target: SlotTarget): Record<string, unknown> {
       ...(tabId ? { tab_id: tabId } : {}),
       ...(paneId ? { pane_id: paneId } : {}),
       ...(agent ? { agent } : {}),
-      ...(workspace?.worktree?.checkout_path || workspace?.cwd
-        ? { checkout_path: workspace.worktree?.checkout_path ?? workspace.cwd }
-        : {}),
+      ...(checkoutPath ? { checkout_path: checkoutPath } : {}),
       remote,
       mobile,
       viewer: {
@@ -68,17 +72,7 @@ export function useSlotContext(target: SlotTarget): Record<string, unknown> {
         width: widthClass(window.innerWidth),
       },
     };
-  }, [
-    client,
-    mobile,
-    remote,
-    workspaceId,
-    workspace?.cwd,
-    workspace?.worktree?.checkout_path,
-    tabId,
-    paneId,
-    agent,
-  ]);
+  }, [client, mobile, remote, workspaceId, checkoutPath, tabId, paneId, agent]);
 }
 
 function str(value: unknown): string | undefined {
