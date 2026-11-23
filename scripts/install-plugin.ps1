@@ -15,7 +15,7 @@ switch ($architecture) {
 Get-Command tar.exe -CommandType Application -ErrorAction Stop | Out-Null
 $packageDir = "roamgate-$platform"
 $archiveName = "roamgate-v$version-$platform.tar.xz"
-$releaseBase = "https://github.com/powerfooI/roamgate/releases/download/v$version"
+$releaseBase = "https://github.com/nmindz/roamgate/releases/download/v$version"
 $environment = [Environment]::GetEnvironmentVariables()
 $customReleaseBase = if ($environment.Contains('ROAMGATE_RELEASE_BASE_URL')) {
   $environment['ROAMGATE_RELEASE_BASE_URL']

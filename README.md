@@ -122,12 +122,12 @@ Click any screenshot to open the full-resolution image.
 
    ```bash
    curl -fsSL \
-     https://github.com/powerfooI/roamgate/releases/latest/download/install-roamgate.sh \
+     https://github.com/nmindz/roamgate/releases/latest/download/install-roamgate.sh \
      | sh
    ```
 
    On Windows, download the x64 or ARM64 archive from the
-   [latest release](https://github.com/powerfooI/roamgate/releases/latest).
+   [latest release](https://github.com/nmindz/roamgate/releases/latest).
 3. Run `roamgate` (`roamgate.exe` on Windows; on Linux/macOS make sure
    `~/.local/bin` is on `PATH`) and open the printed URL. `roamgate url --qr`
    shows a QR code for your phone, and `roamgate doctor` diagnoses problems.

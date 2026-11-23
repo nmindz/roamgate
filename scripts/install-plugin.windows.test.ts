@@ -190,7 +190,7 @@ test.skipIf(process.platform !== "win32")(
       );
       expect(emptyOverride.exitCode).not.toBe(0);
       expect(emptyOverride.stderr.toString()).toContain(
-        "Selected release: https://github.com/powerfooI/roamgate/releases/download/v9.8.7/",
+        "Selected release: https://github.com/nmindz/roamgate/releases/download/v9.8.7/",
       );
       expect(readdirSync(join(root, "server"))).toEqual(["roamgate.exe"]);
     } finally {

@@ -10,6 +10,7 @@ import {
   curlTransportArgs,
   fetchLatestUpdateManifest,
   normalizeUpdateBaseUrl,
+  RELEASE_REPOSITORY_URL,
   renderUpdateInstallScript,
   resolveUpdateTarget,
   type RunProcessWithCodeTimeout,
@@ -128,7 +129,7 @@ export function createUpdateCommand(
       const target = resolveUpdateTarget(runtime.platform, runtime.arch);
       if (!target) {
         context.error(
-          `roamgate update: no update package for ${runtime.platform}-${runtime.arch}; download it from https://github.com/powerfooI/roamgate/releases/latest`,
+          `roamgate update: no update package for ${runtime.platform}-${runtime.arch}; download it from ${RELEASE_REPOSITORY_URL}/releases/latest`,
         );
         return EXIT_FAILURE;
       }

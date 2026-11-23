@@ -51,7 +51,7 @@ describe("roamgate update", () => {
       platform: "linux-x64",
     });
     expect(fake.calls[0]).toContain(
-      "https://github.com/powerfooI/roamgate/releases/latest/download/roamgate-linux-x64.update.json",
+      "https://github.com/nmindz/roamgate/releases/latest/download/roamgate-linux-x64.update.json",
     );
   });
 

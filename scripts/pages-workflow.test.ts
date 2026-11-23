@@ -58,7 +58,7 @@ test("Pages deploys on main pushes or manual dispatch and checks installer avail
   ).toBe(true);
   const url = gate.match(/https:\/\/\S+\/install-roamgate\.sh/)?.[0];
   expect(url).toBe(
-    "https://github.com/powerfooI/roamgate/releases/latest/download/install-roamgate.sh",
+    "https://github.com/nmindz/roamgate/releases/latest/download/install-roamgate.sh",
   );
   for (const path of [
     "../site/index.html",

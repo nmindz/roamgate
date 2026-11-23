@@ -50,7 +50,7 @@ On Linux/macOS, the checksum-verifying installer writes `~/.local/bin/roamgate`:
 
 ```bash
 curl -fsSL \
-  https://github.com/powerfooI/roamgate/releases/latest/download/install-roamgate.sh \
+  https://github.com/nmindz/roamgate/releases/latest/download/install-roamgate.sh \
   | sh
 ```
 
@@ -59,7 +59,7 @@ Add `~/.local/bin` to PATH, then run `roamgate` and open the printed URL.
 the previous binary (`roamgate.previous`).
 
 On Windows, download `roamgate-windows-<arch>.tar.xz` and its `.sha256` from the
-[latest release](https://github.com/powerfooI/roamgate/releases/latest), verify
+[latest release](https://github.com/nmindz/roamgate/releases/latest), verify
 with `Get-FileHash`, extract with `tar.exe`, and run `roamgate.exe`.
 
 Installer settings go on the `sh` side of the pipe (`curl ... | <setting> sh`):
@@ -155,7 +155,7 @@ It uses the standalone executable, so Bun is not required.
 Install a published release (0.7.1 or newer):
 
 ```bash
-herdr plugin install powerfooI/roamgate --ref vX.Y.Z
+herdr plugin install nmindz/roamgate --ref vX.Y.Z
 ```
 
 The installer verifies the package checksum, version, and platform before
@@ -165,7 +165,7 @@ replacing the executable. To upgrade, run the same command with the new tag;
 For an unreleased checkout, build before linking, and rebuild after updates:
 
 ```bash
-git clone https://github.com/powerfooI/roamgate.git
+git clone https://github.com/nmindz/roamgate.git
 cd roamgate
 bun scripts/studio-plugin.ts build-source
 herdr plugin link .

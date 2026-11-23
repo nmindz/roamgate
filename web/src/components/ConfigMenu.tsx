@@ -42,7 +42,7 @@ const ConfigurationDialog = lazyWithReload("configuration", () =>
   })),
 );
 const APP_VERSION = packageJson.version;
-const RELEASES_URL = "https://github.com/powerfooI/roamgate/releases";
+const RELEASES_URL = "https://github.com/nmindz/roamgate/releases";
 export const CONFIG_MENU_ID = "roamgate-config-menu";
 
 export function reloadApplicationPage(
