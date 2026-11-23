@@ -122,7 +122,7 @@ jobs:
               file "$binary" | grep -E 'PE32\+ executable' | grep -E 'MS Windows' | grep -Eq 'x86-64'
               ;;
             windows-arm64)
-              file "$binary" | grep -E 'PE32\+ executable' | grep -E 'MS Windows' | grep -Eiq 'Aarch64'
+              file "$binary" | tee /dev/stderr | grep -E 'PE32\+ executable' | grep -E 'MS Windows' | grep -Eiq 'Aarch64|ARM64'
               ;;
           esac
       - name: Build debug executable
