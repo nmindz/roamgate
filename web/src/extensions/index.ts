@@ -17,6 +17,7 @@ import {
   TopbarView,
 } from "./views";
 import { BootView } from "./BootView";
+import { OpenPageView } from "./OpenPageView";
 import { AppearanceThemes } from "./themes";
 import type { HostProps } from "./types";
 
@@ -34,6 +35,7 @@ export function ExtensionsHost(props: HostProps) {
       createElement(ExtensionNotices, { onOpen: props.onOpen }),
       createElement(ExtensionToasts),
       createElement(BootView),
+      createElement(OpenPageView),
     );
   if (slot.endsWith(".badge")) return createElement(BadgesView, props);
   if (slot.startsWith("context-menu."))

@@ -526,6 +526,14 @@ declare module "roamgate" {
   type Suppress = { suppress: true } | Observed;
   type GateAnswer = Gate | Passed | undefined | void;
 
+  /**
+   * A command answer that opens this extension's own proxied web page
+   * (`/ext/<id>/web/<path>`) over the workspace. Other paths are ignored.
+   */
+  export interface CommandAnswer {
+    open?: string;
+  }
+
   /** What a handler may return; `undefined` or `next()` passes the event on. */
   export interface Answers {
     "extension.activate": Observed;
@@ -539,7 +547,8 @@ declare module "roamgate" {
     "agent.attention": Suppress;
     "workspace.step": Observed;
     "notify.send": Suppress;
-    "command.run": AnyAnswer;
+    /** `{ open: "/ext/<own-id>/web/..." }` opens that proxied page over the workspace. */
+    "command.run": CommandAnswer | AnyAnswer;
     "ui.render": Element | SlotData | Observed;
     "ui.action": AnyAnswer;
     "config.change": Observed;

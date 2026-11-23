@@ -1,5 +1,6 @@
 import { bridge } from "../api";
 import { store } from "../store";
+import { openCommandAnswer } from "./openPage";
 
 export interface RunContext {
   ext: string;
@@ -24,16 +25,22 @@ export function runUiAction(
   });
 }
 
-/** `ext.command.run` for an extension command id. */
-export function runCommand(
+/**
+ * `ext.command.run` for an extension command id. An `{ open }` answer naming
+ * the extension's own `/ext/<id>/web/` page opens it over the workspace.
+ */
+export async function runCommand(
   ctx: Pick<RunContext, "ext" | "context">,
   command: string,
 ) {
-  return bridge.call("ext.command.run", {
+  const result = await bridge.call("ext.command.run", {
     ext: ctx.ext,
     command,
     context: ctx.context,
   });
+  // Callers still get the raw reply; only an own-page `open` has a side effect.
+  openCommandAnswer(ctx.ext, (result as { result?: unknown } | null)?.result);
+  return result;
 }
 
 /** Runs a command from a menu or badge; failures surface as a notice. */

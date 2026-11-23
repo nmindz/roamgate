@@ -172,6 +172,14 @@ namespaces them as `<ext-id>:<command-id>`. `when` is a
 [matcher](#matchers) over the current context (`connection_id`,
 `workspace_id`, `tab_id`, `pane_id`, `agent`, and so on).
 
+A command may answer `{ open: "/ext/<id>/web/<path>?<query>" }` to show its
+own [proxied page](#proxy) over the workspace (full screen on phones, with a
+button to move it to a new tab). Only the extension's own `/ext/<id>/web/`
+prefix opens; other paths, other origins, `..` escapes and the `_/<cap>/`
+frame path are ignored, and the rest of the answer is returned unchanged.
+Slot context has no agent session; a mod that needs it calls
+`$.agent.session(pane_id)`.
+
 A keybinding must name a declared command. `mod` is `Cmd` on macOS and `Ctrl`
 elsewhere; the key must be one the web app accepts as a global shortcut, so
 users can rebind it under **Keyboard shortcuts**. Conflicts are worked out
