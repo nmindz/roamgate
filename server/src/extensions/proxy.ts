@@ -339,6 +339,9 @@ export async function proxyHttp(
   headers.append("content-security-policy", PROXY_SANDBOX_CSP);
   // The capability is in the URL; it must not leak through Referer.
   headers.set("referrer-policy", "no-referrer");
+  // The sandboxed frame's origin is opaque, so its module scripts, fetch and
+  // EventSource are CORS requests from `null`; the capability is the gate.
+  headers.set("access-control-allow-origin", "null");
   return new Response(upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,

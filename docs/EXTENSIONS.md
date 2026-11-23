@@ -847,7 +847,9 @@ every capability.
 Under `/_/<cap>/` every method, Server-Sent Events, and WebSockets reach the
 loopback upstream. `Authorization`, `Cookie`, and hop-by-hop headers are not
 forwarded; `Set-Cookie` is not returned; upstream redirects are mapped back
-under the capability. Responses get `Referrer-Policy: no-referrer` and:
+under the capability. Responses get `Referrer-Policy: no-referrer`,
+`Access-Control-Allow-Origin: null` (the frame's origin is opaque, so its
+module scripts, `fetch` and `EventSource` are CORS requests), and:
 
 ```text
 sandbox allow-scripts allow-forms; default-src 'self' data: blob:;

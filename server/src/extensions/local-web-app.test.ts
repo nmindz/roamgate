@@ -196,6 +196,8 @@ test("logged in, HTTP reaches the loopback upstream without Roamgate credentials
   );
   expect(response.headers.get("set-cookie")).toBeNull();
   expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  // The opaque-origin frame loads modules and calls its API through CORS.
+  expect(response.headers.get("access-control-allow-origin")).toBe("null");
   const posted = await fetch(`${base}${proxied}/api/echo`, {
     method: "POST",
     body: "hello",
