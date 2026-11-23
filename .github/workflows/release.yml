@@ -119,10 +119,10 @@ jobs:
               file "$binary" | grep -Eq 'Mach-O 64-bit.*arm64'
               ;;
             windows-x64)
-              file "$binary" | grep -Eq 'PE32\+ executable.*x86-64.*MS Windows'
+              file "$binary" | grep -E 'PE32\+ executable' | grep -E 'MS Windows' | grep -Eq 'x86-64'
               ;;
             windows-arm64)
-              file "$binary" | grep -Eq 'PE32\+ executable.*Aarch64.*MS Windows'
+              file "$binary" | grep -E 'PE32\+ executable' | grep -E 'MS Windows' | grep -Eiq 'Aarch64'
               ;;
           esac
       - name: Build debug executable
