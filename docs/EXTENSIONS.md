@@ -342,7 +342,10 @@ The mod starts on the first matching trigger:
 | `slot:<slot>`  | A browser renders that slot. Without `[[slots]]` for it, the entry id is `default`. |
 
 An event waits for activation up to its handler budget, and `init` must
-finish within 10 seconds. Mods without `startup` stop after 10 minutes idle.
+finish within 10 seconds. A render starts a stopped mod only under
+`slot:<slot>`; otherwise the slot shows the static fields until the mod runs.
+A render that outlasts its budget while the mod starts keeps the static
+entry and is not recorded as a failure. Mods without `startup` stop after 10 minutes idle.
 Each running mod is its own Bun process of roughly 18 MiB resident memory
 (measured idle on macOS arm64 with `scripts/bench-extensions-memory.ts`), so
 prefer `event:`, `command:` or `slot:` activation over `startup`.

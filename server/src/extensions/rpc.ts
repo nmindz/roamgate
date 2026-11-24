@@ -305,6 +305,13 @@ export function createExtensionRpc(options: ExtensionRpcOptions): ExtensionRpc {
         const viewer = record(params.viewer);
         const jobs: Array<Promise<ExtensionUiRenderEntry | null>> = [];
         for (const { id, manifest } of host.slotContributors(slot)) {
+          // Only `slot:<slot>` activation starts a mod to render; otherwise a
+          // stopped mod leaves its static entries to the browser.
+          if (
+            !host.isRunning(id) &&
+            !manifest.activation.includes(`slot:${slot}`)
+          )
+            continue;
           const declared = manifest.slots.filter(
             (entry) => entry.slot === slot,
           );

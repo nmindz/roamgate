@@ -655,6 +655,12 @@ export class ExtensionHost implements EventSubscriber {
       try {
         child = await this.activateWithin(runtime, budget);
       } catch (error) {
+        // A render outlived by cold start keeps the static entry; the mod
+        // goes on starting and answers the next render.
+        if (error instanceof ActivationTimeout && event.name === "ui.render") {
+          this.log(runtime, "info", `ui.render: ${error.message}, kept static`);
+          continue;
+        }
         const failure = this.fail(runtime, event, errorText(error), "block");
         if (failure) return { event, ...failure };
         continue;
@@ -805,8 +811,7 @@ export class ExtensionHost implements EventSubscriber {
     const activation = this.activate(runtime);
     const timeout = Promise.withResolvers<never>();
     const timer = setTimeout(
-      () =>
-        timeout.reject(new Error(`activation took longer than ${budgetMs}ms`)),
+      () => timeout.reject(new ActivationTimeout(budgetMs)),
       budgetMs,
     );
     return Promise.race([activation, timeout.promise]).finally(() =>
@@ -1312,5 +1317,12 @@ export class ExtensionHost implements EventSubscriber {
         await appendFile(file, `${line}\n`, { mode: 0o600 });
       })
       .catch(() => undefined);
+  }
+}
+
+/** Activation outlasted an event's budget; the activation itself goes on. */
+class ActivationTimeout extends Error {
+  constructor(budgetMs: number) {
+    super(`activation took longer than ${budgetMs}ms`);
   }
 }

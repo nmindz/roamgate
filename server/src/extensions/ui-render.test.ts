@@ -113,13 +113,97 @@ command = "open"`,
     registry,
   );
   const rpc = rpcFor(registry);
-  const result = (await rpc.handle("ext.ui.render", {
-    slot: "context-menu.agent",
-    context: { agent: "omp" },
-  })) as ExtensionUiRenderResult;
-  expect(result.entries).toEqual([
+  const render = async () =>
+    (
+      (await rpc.handle("ext.ui.render", {
+        slot: "context-menu.agent",
+        context: { agent: "omp" },
+      })) as ExtensionUiRenderResult
+    ).entries;
+  // Stopped and not activated by the slot: static entries only.
+  expect(await render()).toEqual([]);
+  await rpc.handle("ext.command.run", { ext: "acme.menu", command: "open" });
+  expect(await render()).toEqual([
     { ext: "acme.menu", entry_id: "hidden", value: null },
   ]);
+});
+
+test("a static slot without slot activation renders without spawning the mod", async () => {
+  const registry = sandbox.registry();
+  sandbox.link(
+    "acme.static",
+    `export function register(on) {
+      on("command.run", { command: "open" }, () => ({ ok: true }));
+    }`,
+    `capabilities = ["commands"]
+activation = ["command:open"]
+[[commands]]
+id = "open"
+title = "Open"
+[[slots]]
+slot = "pane.toolbar"
+id = "open"
+title = "Open"
+icon = "activity"
+command = "open"`,
+    registry,
+  );
+  const { host } = sandbox.host(registry);
+  host.start();
+  const rpc = createExtensionRpc({
+    registry,
+    host,
+    installer: {} as ExtensionInstaller,
+    previews: {} as InstallPreviews,
+    broadcast: () => undefined,
+  });
+  const result = (await rpc.handle("ext.ui.render", {
+    slot: "pane.toolbar",
+    context: {},
+  })) as ExtensionUiRenderResult;
+  expect(result.entries).toEqual([]);
+  expect(host.isRunning("acme.static")).toBe(false);
+});
+
+test("a render outlived by cold start keeps the static entry without a lasting error", async () => {
+  const registry = sandbox.registry();
+  sandbox.link(
+    "acme.slow",
+    `await new Promise((resolve) => setTimeout(resolve, 1000));
+    export function register(on) {
+      on("ui.render", () => ({ text: "live" }));
+    }`,
+    `capabilities = ["ui"]
+activation = ["slot:statusbar.item"]
+[[slots]]
+slot = "statusbar.item"
+id = "s"
+text = "static"`,
+    registry,
+  );
+  const { host } = sandbox.host(registry, { budgets: { "ui.render": 20 } });
+  host.start();
+  const rpc = createExtensionRpc({
+    registry,
+    host,
+    installer: {} as ExtensionInstaller,
+    previews: {} as InstallPreviews,
+    broadcast: () => undefined,
+  });
+  const result = (await rpc.handle("ext.ui.render", {
+    slot: "statusbar.item",
+    context: {},
+  })) as ExtensionUiRenderResult;
+  expect(result.entries).toEqual([]);
+  const entry = host.state().extensions.find((e) => e.id === "acme.slow");
+  expect(entry?.last_error).toBeUndefined();
+  // More cold-start timeouts than the failure limit, all while the mod starts.
+  for (let i = 0; i < 6; i++)
+    await rpc.handle("ext.ui.render", { slot: "statusbar.item", context: {} });
+  const after = host.state().extensions.find((e) => e.id === "acme.slow");
+  expect(after?.enabled).toBe(true);
+  expect(after?.status).not.toBe("failed");
+  expect(after?.last_error).toBeUndefined();
 });
 
 test("a hidden entry never activates its mod; ui.action reaches the contributor", async () => {
