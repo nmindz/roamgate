@@ -72,6 +72,13 @@ function useRun(context: Context, onRun?: () => void) {
     ).then(() => onRun?.());
 }
 
+/** An entry's accessible name, prefixed with its extension unless it names it already. */
+function entryLabel(extName: string, text: string): string {
+  return text.toLowerCase().includes(extName.toLowerCase())
+    ? text
+    : `${extName}: ${text}`;
+}
+
 function rows(items: SlotItem[]) {
   return items.flatMap((item) => {
     const data = itemData(item.value);
@@ -120,8 +127,8 @@ export function TopbarView({ onRun }: HostProps) {
           key={item.key}
           type="button"
           className={`topbar-button icon-button ext-topbar-item${data.danger ? " is-danger" : ""}`}
-          title={`${item.extName}: ${data.title}`}
-          aria-label={`${item.extName}: ${data.title}`}
+          title={entryLabel(item.extName, data.title)}
+          aria-label={entryLabel(item.extName, data.title)}
           disabled={!!data.disabledReason}
           onClick={() => run(item, data.command)}
         >
@@ -278,7 +285,7 @@ export function BadgesView({ slot, ...target }: HostProps) {
             {text}
           </>
         );
-        const title = `${item.extName}: ${tooltip}`;
+        const title = entryLabel(item.extName, tooltip);
         return command ? (
           <button
             key={item.key}
@@ -396,8 +403,8 @@ export function PaneToolbarView(props: HostProps) {
           key={item.key}
           type="button"
           className={`terminal-pane-action${data.danger ? " is-danger" : ""}`}
-          title={`${item.extName}: ${data.title}`}
-          aria-label={`${item.extName}: ${data.title}`}
+          title={entryLabel(item.extName, data.title)}
+          aria-label={entryLabel(item.extName, data.title)}
           disabled={!!data.disabledReason}
           onPointerDown={(event) => event.preventDefault()}
           onClick={() => run(item, data.command)}
